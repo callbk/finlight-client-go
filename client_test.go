@@ -115,7 +115,7 @@ func TestGetSources(t *testing.T) {
 
 func TestRetryOn503ThenSuccess(t *testing.T) {
 	var attempts atomic.Int32
-	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+	client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		if attempts.Add(1) == 1 {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
@@ -133,7 +133,7 @@ func TestRetryOn503ThenSuccess(t *testing.T) {
 
 func TestNoRetryOn400(t *testing.T) {
 	var attempts atomic.Int32
-	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+	client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		attempts.Add(1)
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"message":"bad request"}`))
@@ -151,7 +151,7 @@ func TestNoRetryOn400(t *testing.T) {
 
 func TestRetriesExhausted(t *testing.T) {
 	var attempts atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		attempts.Add(1)
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
@@ -172,7 +172,7 @@ func TestRetriesExhausted(t *testing.T) {
 }
 
 func TestContextCancelDuringBackoff(t *testing.T) {
-	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+	client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	})
 

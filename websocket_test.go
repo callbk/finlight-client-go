@@ -132,7 +132,7 @@ func TestStreamHandshakeDedupAndPreempt(t *testing.T) {
 }
 
 func TestRawStreamDoesNotDedup(t *testing.T) {
-	url := newWSTestServer(t, func(r *http.Request, conn *websocket.Conn) {
+	url := newWSTestServer(t, func(_ *http.Request, conn *websocket.Conn) {
 		readJSON(t, conn)
 		sendJSON(t, conn, testArticleMsg("https://example.com/a"))
 		sendJSON(t, conn, testArticleMsg("https://example.com/a"))
@@ -156,14 +156,14 @@ func TestRawStreamDoesNotDedup(t *testing.T) {
 }
 
 func TestStreamBlockedCloseCode(t *testing.T) {
-	url := newWSTestServer(t, func(r *http.Request, conn *websocket.Conn) {
+	url := newWSTestServer(t, func(_ *http.Request, conn *websocket.Conn) {
 		readJSON(t, conn)
 		_ = conn.Close(websocket.StatusPolicyViolation, "blocked")
 	})
 
 	var closeCode atomic.Int64
 	ws := NewWebSocketClient(Config{APIKey: "test-key", WssURL: url}, WebSocketOptions{
-		OnClose: func(code int, reason string) { closeCode.Store(int64(code)) },
+		OnClose: func(code int, _ string) { closeCode.Store(int64(code)) },
 	})
 	for range ws.Stream(context.Background(), GetArticlesWebSocketParams{}) {
 		t.Fatal("no articles expected")
@@ -178,7 +178,7 @@ func TestStreamBlockedCloseCode(t *testing.T) {
 
 func TestStreamReconnectsAfterServerClose(t *testing.T) {
 	var conns atomic.Int32
-	url := newWSTestServer(t, func(r *http.Request, conn *websocket.Conn) {
+	url := newWSTestServer(t, func(_ *http.Request, conn *websocket.Conn) {
 		readJSON(t, conn)
 		if conns.Add(1) == 1 {
 			_ = conn.Close(websocket.StatusNormalClosure, "bye") // trigger reconnect
@@ -206,7 +206,7 @@ func TestStreamReconnectsAfterServerClose(t *testing.T) {
 }
 
 func TestStreamConsumerBreakStopsStream(t *testing.T) {
-	url := newWSTestServer(t, func(r *http.Request, conn *websocket.Conn) {
+	url := newWSTestServer(t, func(_ *http.Request, conn *websocket.Conn) {
 		readJSON(t, conn)
 		for i := 0; i < 5; i++ {
 			sendJSON(t, conn, testArticleMsg("https://example.com/"+string(rune('a'+i))))
@@ -241,7 +241,7 @@ func TestStreamConsumerBreakStopsStream(t *testing.T) {
 }
 
 func TestStreamContextCancel(t *testing.T) {
-	url := newWSTestServer(t, func(r *http.Request, conn *websocket.Conn) {
+	url := newWSTestServer(t, func(_ *http.Request, conn *websocket.Conn) {
 		readJSON(t, conn)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -253,7 +253,7 @@ func TestStreamContextCancel(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for range ws.Stream(ctx, GetArticlesWebSocketParams{}) {
+		for range ws.Stream(ctx, GetArticlesWebSocketParams{}) { //nolint:revive // drain until cancel
 		}
 	}()
 	time.Sleep(100 * time.Millisecond)
@@ -270,7 +270,7 @@ func TestStreamContextCancel(t *testing.T) {
 
 func TestStreamSendsApplicationPing(t *testing.T) {
 	gotPing := make(chan map[string]any, 1)
-	url := newWSTestServer(t, func(r *http.Request, conn *websocket.Conn) {
+	url := newWSTestServer(t, func(_ *http.Request, conn *websocket.Conn) {
 		readJSON(t, conn) // handshake
 		msg := readJSON(t, conn)
 		select {
@@ -285,7 +285,7 @@ func TestStreamSendsApplicationPing(t *testing.T) {
 	opts := fastWSOptions
 	opts.PingInterval = 30 * time.Millisecond
 	ws := NewWebSocketClient(Config{APIKey: "test-key", WssURL: url}, opts)
-	for range ws.Stream(context.Background(), GetArticlesWebSocketParams{}) {
+	for range ws.Stream(context.Background(), GetArticlesWebSocketParams{}) { //nolint:revive // drain until preempted
 	}
 	select {
 	case msg := <-gotPing:
@@ -305,7 +305,7 @@ func TestStreamAdminKickDelaysReconnect(t *testing.T) {
 	var conns atomic.Int32
 	var firstClose atomic.Int64
 	var secondDial atomic.Int64
-	url := newWSTestServer(t, func(r *http.Request, conn *websocket.Conn) {
+	url := newWSTestServer(t, func(_ *http.Request, conn *websocket.Conn) {
 		n := conns.Add(1)
 		if n == 1 {
 			readJSON(t, conn)
@@ -321,7 +321,7 @@ func TestStreamAdminKickDelaysReconnect(t *testing.T) {
 	})
 
 	ws := NewWebSocketClient(Config{APIKey: "test-key", WssURL: url}, fastWSOptions)
-	for range ws.Stream(context.Background(), GetArticlesWebSocketParams{}) {
+	for range ws.Stream(context.Background(), GetArticlesWebSocketParams{}) { //nolint:revive // drain until preempted
 	}
 	if err := ws.Err(); err != nil {
 		t.Fatalf("Err() = %v", err)

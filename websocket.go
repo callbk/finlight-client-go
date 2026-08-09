@@ -169,11 +169,15 @@ type connResult struct {
 }
 
 func (w *wsCore[T]) runConnection(ctx context.Context, payload any, yield func(T) bool, reconnectAt *time.Time) connResult {
-	header := http.Header{}
-	header.Set("x-api-key", w.cfg.APIKey)
-	header.Set("x-client-version", clientVersion())
+	// The server reads these headers case-sensitively in exact lowercase;
+	// assign map keys directly — Header.Set would canonicalize to X-Api-Key
+	// and the handshake would be rejected with 401.
+	header := http.Header{
+		"x-api-key":        {w.cfg.APIKey},
+		"x-client-version": {clientVersion()},
+	}
 	if w.opts.Takeover {
-		header.Set("x-takeover", "true")
+		header["x-takeover"] = []string{"true"}
 	}
 
 	dialCtx, cancelDial := context.WithTimeout(ctx, w.cfg.Timeout)
