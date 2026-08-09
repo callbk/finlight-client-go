@@ -23,3 +23,9 @@ jobs:
         run: gh release create "$GITHUB_REF_NAME" --generate-notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Go has no registry to upload to — proxy.golang.org pulls the module
+      # from GitHub on first request. This step makes that request immediately
+      # so the version is cached on the proxy and indexed on pkg.go.dev right
+      # away instead of waiting for the first user's `go get`.
+      - name: Trigger Go proxy indexing
+        run: curl -sf "https://proxy.golang.org/github.com/callbk/finlight-client-go/@v/${GITHUB_REF_NAME}.info"
