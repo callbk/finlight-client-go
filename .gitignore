@@ -1,0 +1,15 @@
+# Local-only scripts and credentials — never commit
+local/
+.env
+.env.*
+
+# Binaries and test artifacts
+*.test
+*.out
+coverage.*
+bin/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
