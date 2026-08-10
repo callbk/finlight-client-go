@@ -2,6 +2,8 @@
 
 The official Go client for the [finlight.me](https://finlight.me) API — financial news with sentiment analysis, entity recognition, and real-time streaming.
 
+📚 **Full API documentation: [docs.finlight.me](https://docs.finlight.me)**
+
 ## Features
 
 - **REST API**: search articles, fetch single articles by link, list sources
@@ -54,6 +56,8 @@ func main() {
 ## REST API
 
 ### Search articles
+
+See the [query language reference](https://docs.finlight.me) for the full `Query` syntax.
 
 ```go
 resp, err := client.Articles.FetchArticles(ctx, finlight.GetArticlesParams{
