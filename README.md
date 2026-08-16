@@ -1,5 +1,7 @@
 # finlight-client-go
 
+*English | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md)*
+
 The official Go client for the [finlight.me](https://finlight.me) API — financial news with sentiment analysis, entity recognition, and real-time streaming.
 
 📚 **Full API documentation: [docs.finlight.me](https://docs.finlight.me)**
