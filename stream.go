@@ -269,6 +269,7 @@ type outcome struct {
 	delay    time.Duration
 	backoff  bool // delay comes from the backoff schedule
 	err      Error
+	report   Error           // a refused or failed dial: the error for OnError
 	next     *websocket.Conn // rotation: the next connection, opened and subscribed
 	admitted bool
 	// healthy: the connection delivered an article or a pong. Only then does
@@ -342,6 +343,9 @@ func (s *Stream) run(ctx context.Context) {
 		if conn == nil {
 			var o outcome
 			if conn, o = s.dial(ctx); conn == nil {
+				if o.report != nil {
+					s.reportError(o.report)
+				}
 				if !next(o) {
 					return
 				}
@@ -442,8 +446,7 @@ func (s *Stream) dial(ctx context.Context) (*websocket.Conn, outcome) {
 	if resp == nil || resp.StatusCode == http.StatusSwitchingProtocols {
 		nerr := &NetworkError{Message: "stream dial failed", Err: err}
 		s.warn("stream dial failed", "error", err.Error())
-		s.reportError(nerr)
-		return nil, outcome{action: actReconnect, reason: ReconnectReasonDialFailed, backoff: true}
+		return nil, outcome{action: actReconnect, reason: ReconnectReasonDialFailed, backoff: true, report: nerr}
 	}
 	var body []byte
 	if resp.Body != nil {
@@ -478,7 +481,8 @@ func dialAPIError(status int, body []byte) *APIError {
 }
 
 // classifyDial sorts a refused dial (R-WS-2). The 403 texts are compared by
-// their beginning; without a readable body, 403 waits long and reports.
+// their beginning; without a readable body, 403 waits long and reports. The
+// error to report is in outcome.report; the caller reports it.
 func (s *Stream) classifyDial(status int, body []byte) outcome {
 	e := dialAPIError(status, body)
 	msg := e.Detail
@@ -491,20 +495,16 @@ func (s *Stream) classifyDial(status int, body []byte) outcome {
 	case status == 403 && strings.HasPrefix(msg, "WebSocket quota exceeded"):
 		return outcome{action: actQuota, err: e}
 	case status == 403 && strings.HasPrefix(msg, "Too many concurrent connections"):
-		s.reportError(e) // carries the x-takeover hint when the server gives one
-		return outcome{action: actReconnect, reason: ReconnectReasonConnectionLimit, delay: s.c.cfg.LongBackoff}
+		// The error carries the x-takeover hint when the server gives one.
+		return outcome{action: actReconnect, reason: ReconnectReasonConnectionLimit, delay: s.c.cfg.LongBackoff, report: e}
 	case status == 403:
-		s.reportError(e)
-		return outcome{action: actReconnect, reason: ReconnectReasonDialRefused, delay: s.c.cfg.LongBackoff}
+		return outcome{action: actReconnect, reason: ReconnectReasonDialRefused, delay: s.c.cfg.LongBackoff, report: e}
 	case status == 429:
-		s.reportError(e)
-		return outcome{action: actReconnect, reason: ReconnectReasonRateLimited, delay: s.c.cfg.LongBackoff}
+		return outcome{action: actReconnect, reason: ReconnectReasonRateLimited, delay: s.c.cfg.LongBackoff, report: e}
 	case status >= 500:
-		s.reportError(e)
-		return outcome{action: actReconnect, reason: ReconnectReasonDialFailed, backoff: true}
+		return outcome{action: actReconnect, reason: ReconnectReasonDialFailed, backoff: true, report: e}
 	}
-	s.reportError(e)
-	return outcome{action: actReconnect, reason: ReconnectReasonDialRefused, backoff: true}
+	return outcome{action: actReconnect, reason: ReconnectReasonDialRefused, backoff: true, report: e}
 }
 
 type readResult struct {
@@ -628,12 +628,17 @@ func (s *Stream) session(ctx context.Context, conn *websocket.Conn, subscribed b
 			s.debug("rotating the stream connection")
 			nextConn, o := s.dial(ctx)
 			if nextConn == nil {
+				// Close waits for the close reply (at most 5 s).
 				closeConn(websocket.StatusNormalClosure)
 				o.admitted, o.healthy = admitted, healthy
-				if o.action == actReconnect {
-					o.reason = ReconnectReasonRotation
+				if o.action == actStop || o.action == actTerminal || (o.action == actQuota && cfg.DisableQuotaReconnect) {
+					return o
 				}
-				return o
+				// Typically the plan's connection limit is in use by this very
+				// connection. Now that it is closed, dial again at once, without
+				// OnError; only a refusal of that dial waits and reports.
+				s.debug("the rotation dial failed; closed the old connection, dialing again")
+				return outcome{action: actReconnect, reason: ReconnectReasonRotation, admitted: admitted, healthy: healthy}
 			}
 			if err := writeText(nextConn, s.subscribeFrame()); err != nil {
 				_ = nextConn.CloseNow()

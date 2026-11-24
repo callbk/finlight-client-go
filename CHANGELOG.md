@@ -35,6 +35,10 @@ Contract kit: 3.0.0-rc.3.
   goroutine, so a slow hook never delays pongs, and a hook may call `Close`. The reconnect backoff grows
   until a connection delivers an article or a pong. The API key goes out as a lowercase `x-api-key`
   header.
+- Rotation opens the new connection before it closes the old one. When that dial is refused or fails
+  (for example at a connection limit of 1, which the old connection itself uses), the old connection is
+  closed, its close reply awaited, and the stream dials again at once, without `OnError`. Only a refusal
+  of that second dial is reported and waits. Refusals that end a stream still end it.
 - When the monthly WebSocket quota is used up (dial 403 "quota exceeded" or `connection.preempted` with
   reason `quota_exceeded`), the stream tries again every hour until the quota allows it, logging a warning
   and calling `OnQuotaWait` each time. On by default; `DisableQuotaReconnect` ends the stream with the

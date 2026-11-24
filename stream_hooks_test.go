@@ -182,3 +182,76 @@ func TestBackoffGrowsOverSearchFailed(t *testing.T) {
 		t.Errorf("delay after a healthy connection = %v, want the first backoff step", d)
 	}
 }
+
+// A refused rotation dial (here: the plan's connection limit, used by the old
+// connection itself) closes the old connection, waits for its close and dials
+// again at once with reason rotation, without OnError. Only a second refusal
+// is reported and waits.
+func TestRotationRefusedClosesOldAndRedials(t *testing.T) {
+	tooMany := dialReply{status: 403, body: `{"message":"Too many concurrent connections"}`}
+	for _, tc := range []struct {
+		name   string
+		second []dialReply
+	}{
+		{name: "second dial accepted"},
+		{name: "second dial refused", second: []dialReply{tooMany}},
+		{name: "5xx refusal", second: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := newWSMock(t)
+			p := startProbe(t, ws, probeOptions{apiKey: "sk_test", nonce: "c-1"})
+			defer p.stop()
+			old := ws.nextDial(t, "dial").conn
+			old.nextNonPing(t, "subscribe")
+			old.send(t, admittedFrame)
+			first := tooMany
+			if tc.name == "5xx refusal" {
+				first = dialReply{status: 502, body: `{"message":"Bad Gateway"}`}
+			}
+			ws.push(first)
+			ws.push(tc.second...)
+			p.advance(rotationForTest)
+			if d := ws.nextDial(t, "rotation dial"); d.conn != nil {
+				t.Fatal("the rotation dial was not refused")
+			}
+			waitFor(t, "old connection closed", func() bool { return !old.isOpen() })
+			d := ws.nextDial(t, "second rotation dial")
+			waitFor(t, "an immediate rotation redial", func() bool {
+				return p.count(func() int {
+					for _, s := range p.scheduled {
+						if s.delay == 0 && s.reason == ReconnectReasonRotation {
+							return 1
+						}
+					}
+					return 0
+				}) == 1
+			})
+			if tc.second == nil {
+				if d.conn == nil {
+					t.Fatal("the second rotation dial was refused")
+				}
+				d.conn.nextNonPing(t, "re-subscribe")
+				waitFor(t, "onReconnect", func() bool { return p.count(func() int { return len(p.reconnects) }) == 1 })
+				p.with(func() {
+					if p.reconnects[0].Reason != ReconnectReasonRotation {
+						t.Errorf("reconnect reason = %q", p.reconnects[0].Reason)
+					}
+					if len(p.errs) != 0 {
+						t.Errorf("OnError called for the first refusal: %v", p.errs)
+					}
+				})
+				return
+			}
+			waitFor(t, "the second refusal reported", func() bool { return p.count(func() int { return len(p.errs) }) == 1 })
+			waitFor(t, "the long wait", func() bool {
+				return p.count(func() int {
+					last := p.scheduled[len(p.scheduled)-1]
+					if last.delay == defaultLongBackoff && last.reason == ReconnectReasonConnectionLimit {
+						return 1
+					}
+					return 0
+				}) == 1
+			})
+		})
+	}
+}
