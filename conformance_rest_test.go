@@ -227,15 +227,27 @@ var _ = conformance("R-08", func(t *testing.T) {
 	f := loadFixture(t, "fixtures/requests/companies-get.json")
 	m := newHTTPMock(t)
 	m.serveFixture(f["response"])
-	rec, err := newTestClient(t, Config{BaseURL: m.URL()}).Companies.Get(t.Context(), 900001, nil)
+	m.serveFixture(f["response"])
+	c := newTestClient(t, Config{BaseURL: m.URL()})
+	rec, err := c.Companies.Get(t.Context(), 900001, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	expectRequest(t, m.reqs()[0], f["request"])
 	hdr := obj(obj(f["response"])["headers"])
 	ci := rec.CacheInfo()
-	if ci.ETag != hdr["etag"] || ci.CacheControl != hdr["cache-control"] || ci.NotModified {
+	if ci.ETag != hdr["etag"] || ci.CacheControl != hdr["cache-control"] {
 		t.Errorf("cache info = %+v", ci)
+	}
+	// The SDK keeps no company cache: a second Get without IfNoneMatch is a
+	// plain request again, with no If-None-Match of its own.
+	if _, err := c.Companies.Get(t.Context(), 900001, nil); err != nil {
+		t.Fatal(err)
+	}
+	for i, r := range m.reqs() {
+		if v, ok := r.Header["If-None-Match"]; ok {
+			t.Errorf("request %d sent If-None-Match %q without a caller ETag", i, v)
+		}
 	}
 	mics := map[string]bool{}
 	for _, l := range rec.Listings {
@@ -274,25 +286,13 @@ var _ = conformance("R-09", func(t *testing.T) {
 		t.Errorf("If-None-Match = %q", r.Header.Get("If-None-Match"))
 	}
 
-	// The SDK's own cached copy: revalidated, and returned on 304.
-	full := loadFixture(t, "fixtures/requests/companies-get.json")
+	// The SDK never answers a 304 with a stored record: even an unexpected 304
+	// without a caller ETag is "not modified", never an error or a decode.
 	m2 := newHTTPMock(t)
-	m2.serveFixture(full["response"])
 	m2.serveFixture(f["response"])
-	c2 := newTestClient(t, Config{BaseURL: m2.URL()})
-	first, err := c2.Companies.Get(t.Context(), 900001, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := c2.Companies.Get(t.Context(), 900001, nil)
-	if err != nil || second == nil {
-		t.Fatalf("revalidated Get = %v, %v", second, err)
-	}
-	if m2.reqs()[1].Header.Get("If-None-Match") != etag {
-		t.Errorf("SDK did not revalidate with its ETag")
-	}
-	if second.Name != first.Name || !second.CacheInfo().NotModified {
-		t.Errorf("cached record = %+v", second.CacheInfo())
+	rec, err = newTestClient(t, Config{BaseURL: m2.URL()}).Companies.Get(t.Context(), 900001, nil)
+	if err != nil || rec != nil {
+		t.Fatalf("Get without ETag on 304 = %+v, %v; want nil, nil", rec, err)
 	}
 })
 

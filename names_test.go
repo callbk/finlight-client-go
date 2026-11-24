@@ -49,7 +49,7 @@ func TestPublicNames(t *testing.T) {
 		_ Field[string]
 		_ = Config{APIKey: "", BaseURL: "", WSSURL: "", Timeout: 0, TotalTimeout: 0, MaxRetries: 0,
 			RetryBaseDelay: 0, RetryMaxDelay: 0, RetryOnBurst: BurstRetryOnce, BurstWait: 0, MaxPages: 0,
-			MaxResponseBytes: 0, CompanyCacheSize: 0, PingInterval: 0, WatchdogTimeout: 0, RotationInterval: 0,
+			MaxResponseBytes: 0, PingInterval: 0, WatchdogTimeout: 0, RotationInterval: 0,
 			ReconnectBaseDelay: 0, ReconnectMaxDelay: 0, LongBackoff: 0, DisableQuotaReconnect: false,
 			QuotaReconnectInterval: 0, SearchFailedThreshold: 0, DedupeCacheSize: 0, MaxMessageBytes: 0,
 			ConnectTimeout: 0, Logger: (*slog.Logger)(nil), Clock: nil, HTTPClient: (*http.Client)(nil)}
@@ -64,7 +64,7 @@ func TestPublicNames(t *testing.T) {
 		_ = QuotaWaitInfo{Error: nil, NextAttemptIn: 0, Attempt: 0}
 		_ = StreamOptions{Takeover: false, OnAdmitted: nil, OnReconnect: nil, OnError: nil, OnQuotaWait: nil}
 		_ = SkippedEntry{Index: 0, Raw: nil, Reason: ""}
-		_ = CacheInfo{ETag: "", CacheControl: "", NotModified: false}
+		_ = CacheInfo{ETag: "", CacheControl: ""}
 		_ = WebhookEvent{IsTest: false}
 		_ = []any{ArticleSource{}, Media{}, Sentiment{}, Company{}, Listing{}, EventTag{}, Source{}, Pagination{}, ArticlePage{}, CompanyList{}, SourceList{}, SearchAllOptions{}}
 		_ = []ErrorKind{ErrorKindAPI, ErrorKindValidation, ErrorKindNetwork, ErrorKindTimeout, ErrorKindDecode, ErrorKindWebhookVerification, ErrorKindPreempted}

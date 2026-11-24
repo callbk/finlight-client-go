@@ -118,7 +118,7 @@ article, err = client.Articles.GetByLink(ctx, "https://www.reuters.com/...", nil
 
 companies, err := client.Companies.Search(ctx, finlight.CompanySearchParams{Q: "NVDA", MIC: "XNAS"}) // at most 10, no pages
 companies, err = client.Companies.GetMany(ctx, []int64{4821, 1001})
-company, err := client.Companies.Get(ctx, 4821, nil) // revalidated with its ETag next time
+company, err := client.Companies.Get(ctx, 4821, nil) // the SDK keeps no cache
 fmt.Println(company.CacheInfo().ETag, company.CacheInfo().CacheControl)
 
 sources, err := client.Sources.List(ctx)
@@ -128,11 +128,12 @@ sources, err := client.Sources.List(ctx)
 - Articles indexed before article ids existed can only be fetched by link.
 - Company lookups need the `entityAccess` entitlement (`APIKind` `forbidden` otherwise).
 - Each company or source lookup costs 1 credit, like an article request (`Companies.GetMany` one per
-  request). A 304 revalidation and error answers cost 1 credit too; a lookup can also get a 429.
+  request). A 304 and error answers cost 1 credit too; a lookup can also get a 429.
 - `Source.Type` and `Article.Source.Type` are nil when the source is not classified.
-- `Companies.Get` keeps the last records and revalidates them with their ETag (`CompanyCacheSize`).
-  With your own `&finlight.CompanyGetOptions{IfNoneMatch: etag}`, a 304 answer returns `(nil, nil)`.
-  `CacheInfo()` gives `ETag`, `CacheControl` and `NotModified`.
+- The SDK keeps no cache of company records. `CacheInfo()` gives `ETag` and `CacheControl`, so you can
+  keep a record yourself. To save credits, do not call again within `max-age`. To check a record you
+  keep, pass its ETag as `&finlight.CompanyGetOptions{IfNoneMatch: etag}`; a 304 answer returns
+  `(nil, nil)` and costs 1 credit too. Without `IfNoneMatch` no `If-None-Match` header is sent.
 - `Companies.Search`, `Companies.GetMany` and `Sources.List` return `Items` and `Skipped`;
   `ArticlePage.Skipped` does the same for search pages. Entries that cannot be read land there.
 
@@ -313,7 +314,7 @@ client, err := finlight.NewClient(finlight.Config{
 ```
 
 Zero values mean the default. Durations are `time.Duration`. Where a feature that is on by default can
-be turned off, use a negative number (`MaxRetries`, `CompanyCacheSize`) or the `Disable...` field.
+be turned off, use a negative number (`MaxRetries`) or the `Disable...` field.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -328,7 +329,6 @@ be turned off, use a negative number (`MaxRetries`, `CompanyCacheSize`) or the `
 | `BurstWait` | 10 s | burst wait when `Retry-After` is missing |
 | `MaxPages` | 10 | page cap of `SearchAll` |
 | `MaxResponseBytes` | 32 MiB | size limit of a REST answer |
-| `CompanyCacheSize` | 256 | records kept by `Companies.Get` (negative: off) |
 | `PingInterval` | 25 s | stream ping |
 | `WatchdogTimeout` | 60 s | reconnect when no pong came for this long |
 | `RotationInterval` | 115 min | fresh connection before the 2 h limit |

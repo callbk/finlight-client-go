@@ -120,7 +120,7 @@ article, err = client.Articles.GetByLink(ctx, "https://www.reuters.com/...", nil
 
 companies, err := client.Companies.Search(ctx, finlight.CompanySearchParams{Q: "NVDA", MIC: "XNAS"}) // at most 10, no pages
 companies, err = client.Companies.GetMany(ctx, []int64{4821, 1001})
-company, err := client.Companies.Get(ctx, 4821, nil) // revalidated with its ETag next time
+company, err := client.Companies.Get(ctx, 4821, nil) // the SDK keeps no cache
 fmt.Println(company.CacheInfo().ETag, company.CacheInfo().CacheControl)
 
 sources, err := client.Sources.List(ctx)
@@ -132,9 +132,10 @@ sources, err := client.Sources.List(ctx)
 - 企業・ソースの参照は記事リクエストと同じく、リクエストごとに 1 クレジットを消費します（`Companies.GetMany` は 1 リクエストで 1）。
   304 の再検証とエラー応答も 1 クレジットを消費します。参照でも 429 が返ることがあります。
 - ソースが未分類の場合、`Source.Type` と `Article.Source.Type` は nil です。
-- `Companies.Get` は最近のレコードを保持し、ETag で再検証します（`CompanyCacheSize`）。
-  独自の `&finlight.CompanyGetOptions{IfNoneMatch: etag}` を使うと、304 応答は `(nil, nil)` を返します。
-  `CacheInfo()` は `ETag`、`CacheControl`、`NotModified` を返します。
+- SDK は企業レコードをキャッシュしません。`CacheInfo()` は `ETag` と `CacheControl` を返すので、
+  レコードはご自身で保持できます。クレジットを節約するには、`max-age` の間は再度呼び出さないでください。
+  保持しているレコードを確認するには、その ETag を `&finlight.CompanyGetOptions{IfNoneMatch: etag}` で渡します。
+  304 応答は `(nil, nil)` を返し、これも 1 クレジットを消費します。`IfNoneMatch` がなければ `If-None-Match` ヘッダーは送られません。
 - `Companies.Search`、`Companies.GetMany`、`Sources.List` は `Items` と `Skipped` を返します。
   検索ページの `ArticlePage.Skipped` も同様で、読み取れなかったエントリがここに入ります。
 
@@ -310,8 +311,8 @@ client, err := finlight.NewClient(finlight.Config{
 })
 ```
 
-ゼロ値は既定値を意味します。時間は `time.Duration` です。既定で有効な機能は負の数（`MaxRetries`、
-`CompanyCacheSize`）または `Disable...` フィールドで無効にできます。
+ゼロ値は既定値を意味します。時間は `time.Duration` です。既定で有効な機能は負の数（`MaxRetries`）
+または `Disable...` フィールドで無効にできます。
 
 | キー | 既定値 | 意味 |
 |---|---|---|
@@ -326,7 +327,6 @@ client, err := finlight.NewClient(finlight.Config{
 | `BurstWait` | 10 秒 | `Retry-After` がない場合のバースト待機 |
 | `MaxPages` | 10 | `SearchAll` のページ上限 |
 | `MaxResponseBytes` | 32 MiB | REST 応答のサイズ上限 |
-| `CompanyCacheSize` | 256 | `Companies.Get` が保持するレコード数（負：無効） |
 | `PingInterval` | 25 秒 | ストリームの ping |
 | `WatchdogTimeout` | 60 秒 | この時間 pong がなければ再接続 |
 | `RotationInterval` | 115 分 | 2 時間の上限前に新しい接続 |

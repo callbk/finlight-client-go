@@ -7,10 +7,10 @@ speaks only the finlight API v3 (REST `/v3`, WebSocket `payloadVersion` 3, v3 we
 v1 does not compile unchanged. To stay on v1 (API v2), keep importing `github.com/callbk/finlight-client-go`.
 Migration guide: https://docs.finlight.me/migration/v2-to-v3
 
-Contract kit: 3.0.0-rc.5.
+Contract kit: 3.0.0-rc.6.
 
 <!-- Maintainers: tag this release only after the API v3 server with source types and lookup
-credits (contract 3.0.0-rc.5: sourceTypes, excludeSourceTypes, source.type; 1 credit per lookup
+credits (contract 3.0.0-rc.5/rc.6: sourceTypes, excludeSourceTypes, source.type; 1 credit per lookup
 request, 304 and errors included) is deployed to prod. -->
 
 ### Removed
@@ -19,15 +19,19 @@ request, 304 and errors included) is deployed to prod. -->
   the WebSocket and raw WebSocket clients, `WebSocketOptions`, the v2 models, `FlexTime`, `FlexFloat`,
   the old webhook helpers, and the special handling of the old close codes and admin kicks.
 - Go 1.23.
+- Since contract 3.0.0-rc.6 the SDK keeps no cache of company records: `Config.CompanyCacheSize` and
+  `CacheInfo.NotModified` are gone (both were only on the v3 pre-release branch). `Companies.Get` sends
+  `If-None-Match` only with your own `CompanyGetOptions.IfNoneMatch`.
 
 ### Added
 
 - `finlight.NewClient(finlight.Config)` with `Articles.Search`, `Articles.SearchAll` (`SearchAllResult`
   with `All()` and `Pages()` as `iter.Seq2`, `NextCursor`, `Truncated`, `PagesFetched`), `Articles.Get`,
-  `Articles.GetByLink`, `Companies.Search`, `Companies.GetMany`, `Companies.Get` (ETag revalidation,
-  `CacheInfo()`, `IfNoneMatch` with 304 as `(nil, nil)`) and `Sources.List`. Lists carry `Skipped`
-  (`SkippedEntry`) for entries that could not be read. Each lookup costs 1 credit, like an article
-  request (`Companies.GetMany` one per request); a 304 revalidation and error answers cost 1 credit too.
+  `Articles.GetByLink`, `Companies.Search`, `Companies.GetMany`, `Companies.Get` (`CacheInfo()` with
+  `ETag` and `CacheControl`, your own `IfNoneMatch` with 304 as `(nil, nil)`; the SDK keeps no cache)
+  and `Sources.List`. Lists carry `Skipped` (`SkippedEntry`) for entries that could not be read. Each lookup costs 1 credit, like an article
+  request (`Companies.GetMany` one per request); a 304 and error answers cost 1 credit too. To save
+  credits, keep the records yourself and do not call again within `max-age`.
 - Tolerant models: exact key matching, required keys only where the contract says so, `RawJSON()`,
   strict `...Time()` accessors, and `Field[T]` for the gated keys (absent, null, value) with
   `ContentPresent`, `SentimentPresent`, `CompaniesPresent` and `EventsPresent`.

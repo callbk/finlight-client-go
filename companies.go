@@ -1,14 +1,12 @@
 package finlight
 
 import (
-	"container/list"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 // CompaniesService groups the company master data endpoints
@@ -17,8 +15,7 @@ import (
 // (GetMany one per request, however many ids); a 304 revalidation and error
 // answers cost 1 credit too.
 type CompaniesService struct {
-	c     *Client
-	cache *companyCache
+	c *Client
 }
 
 // Search looks companies up by text (ticker, name or ISIN), optionally narrowed
@@ -75,21 +72,18 @@ func (s *CompaniesService) list(ctx context.Context, q url.Values) (*CompanyList
 }
 
 // Get fetches one company with its ETag and Cache-Control (see
-// CompanyRecord.CacheInfo). With opts.IfNoneMatch set and an unchanged record,
-// the server answers 304 and Get returns (nil, nil). Without it, the SDK
-// revalidates its own cached copy and returns that copy on a 304. Every call
-// costs 1 credit, a 304 included.
+// CompanyRecord.CacheInfo). The SDK keeps no cache of company records: it sends
+// If-None-Match only when opts.IfNoneMatch is set, and on a 304 (record
+// unchanged) Get returns (nil, nil). Every call costs 1 credit, a 304 included,
+// so to save credits keep the records yourself and do not call again within
+// the Cache-Control max-age.
 func (s *CompaniesService) Get(ctx context.Context, companyID int64, opts *CompanyGetOptions) (*CompanyRecord, error) {
 	if companyID < 1 {
 		return nil, validationErr("companyId", "companyId starts at 1, got %d", companyID)
 	}
 	header := http.Header{}
-	var cached *CompanyRecord
-	callerETag := opts != nil && opts.IfNoneMatch != ""
-	if callerETag {
+	if opts != nil && opts.IfNoneMatch != "" {
 		header.Set("If-None-Match", opts.IfNoneMatch)
-	} else if cached = s.cache.get(companyID); cached != nil {
-		header.Set("If-None-Match", cached.cache.ETag)
 	}
 	resp, err := s.c.t.do(ctx, apiRequest{
 		method: http.MethodGet,
@@ -100,18 +94,7 @@ func (s *CompaniesService) Get(ctx context.Context, companyID int64, opts *Compa
 		return nil, err
 	}
 	if resp.status == http.StatusNotModified {
-		if callerETag || cached == nil {
-			return nil, nil
-		}
-		out := *cached
-		out.cache.NotModified = true
-		if et := resp.header.Get("ETag"); et != "" {
-			out.cache.ETag = et
-		}
-		if cc := resp.header.Get("Cache-Control"); cc != "" {
-			out.cache.CacheControl = cc
-		}
-		return &out, nil
+		return nil, nil
 	}
 	o, err := parseObject(resp.body, "")
 	if err != nil {
@@ -126,59 +109,5 @@ func (s *CompaniesService) Get(ctx context.Context, companyID int64, opts *Compa
 		return nil, err
 	}
 	rec.cache = CacheInfo{ETag: resp.header.Get("ETag"), CacheControl: resp.header.Get("Cache-Control")}
-	if rec.cache.ETag != "" {
-		s.cache.put(companyID, rec)
-	}
 	return rec, nil
-}
-
-// companyCache is a small LRU of company records by id, for ETag revalidation.
-type companyCache struct {
-	mu    sync.Mutex
-	size  int
-	order *list.List
-	items map[int64]*list.Element
-}
-
-type cacheEntry struct {
-	id  int64
-	rec CompanyRecord
-}
-
-func newCompanyCache(size int) *companyCache {
-	return &companyCache{size: size, order: list.New(), items: map[int64]*list.Element{}}
-}
-
-func (c *companyCache) get(id int64) *CompanyRecord {
-	if c == nil || c.size == 0 {
-		return nil
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	el, ok := c.items[id]
-	if !ok {
-		return nil
-	}
-	c.order.MoveToFront(el)
-	rec := el.Value.(*cacheEntry).rec
-	return &rec
-}
-
-func (c *companyCache) put(id int64, rec *CompanyRecord) {
-	if c == nil || c.size == 0 {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if el, ok := c.items[id]; ok {
-		el.Value.(*cacheEntry).rec = *rec
-		c.order.MoveToFront(el)
-		return
-	}
-	c.items[id] = c.order.PushFront(&cacheEntry{id: id, rec: *rec})
-	for c.order.Len() > c.size {
-		last := c.order.Back()
-		c.order.Remove(last)
-		delete(c.items, last.Value.(*cacheEntry).id)
-	}
 }

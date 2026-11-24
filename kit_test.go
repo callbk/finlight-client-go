@@ -146,7 +146,7 @@ func TestKitManifest(t *testing.T) {
 		t.Fatalf("vendored kit does not match MANIFEST:\n%s", strings.Join(problems, "\n"))
 	}
 	v, _ := os.ReadFile(filepath.Join(kitDir, "CONTRACT_VERSION"))
-	if strings.TrimSpace(string(v)) != "3.0.0-rc.5" {
+	if strings.TrimSpace(string(v)) != "3.0.0-rc.6" {
 		t.Fatalf("CONTRACT_VERSION = %q", v)
 	}
 }

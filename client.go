@@ -32,7 +32,7 @@ func NewClient(cfg Config) (*Client, error) {
 	full.APIKey = ""
 	c := &Client{cfg: full, key: key, t: newTransport(full, key)}
 	c.Articles = &ArticlesService{c: c}
-	c.Companies = &CompaniesService{c: c, cache: newCompanyCache(full.CompanyCacheSize)}
+	c.Companies = &CompaniesService{c: c}
 	c.Sources = &SourcesService{c: c}
 	return c, nil
 }

@@ -103,11 +103,7 @@ func TestLiveREST(t *testing.T) {
 		if err != nil {
 			t.Fatalf("companies.get: %v", err)
 		}
-		again, err := c.Companies.Get(ctx, id, nil)
-		if err != nil {
-			t.Fatalf("companies.get again: %v", err)
-		}
-		t.Logf("companies: %d results, etag %q, revalidated %v", len(companies.Items), rec.CacheInfo().ETag, again.CacheInfo().NotModified)
+		t.Logf("companies: %d results, etag %q", len(companies.Items), rec.CacheInfo().ETag)
 		if rec.CacheInfo().ETag != "" {
 			nm, err := c.Companies.Get(ctx, id, &finlight.CompanyGetOptions{IfNoneMatch: rec.CacheInfo().ETag})
 			if err != nil || nm != nil {

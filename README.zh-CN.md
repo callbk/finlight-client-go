@@ -119,7 +119,7 @@ article, err = client.Articles.GetByLink(ctx, "https://www.reuters.com/...", nil
 
 companies, err := client.Companies.Search(ctx, finlight.CompanySearchParams{Q: "NVDA", MIC: "XNAS"}) // at most 10, no pages
 companies, err = client.Companies.GetMany(ctx, []int64{4821, 1001})
-company, err := client.Companies.Get(ctx, 4821, nil) // revalidated with its ETag next time
+company, err := client.Companies.Get(ctx, 4821, nil) // the SDK keeps no cache
 fmt.Println(company.CacheInfo().ETag, company.CacheInfo().CacheControl)
 
 sources, err := client.Sources.List(ctx)
@@ -131,9 +131,10 @@ sources, err := client.Sources.List(ctx)
 - 每次公司或来源查询与文章请求一样消耗 1 个额度（`Companies.GetMany` 每个请求计 1 次）。
   304 重新验证和错误响应也消耗 1 个额度；查询也可能返回 429。
 - 来源未分类时，`Source.Type` 和 `Article.Source.Type` 为 nil。
-- `Companies.Get` 会保存最近的记录，并用其 ETag 重新验证（`CompanyCacheSize`）。
-  使用自己的 `&finlight.CompanyGetOptions{IfNoneMatch: etag}` 时，304 响应返回 `(nil, nil)`。
-  `CacheInfo()` 提供 `ETag`、`CacheControl` 和 `NotModified`。
+- SDK 不缓存公司记录。`CacheInfo()` 提供 `ETag` 和 `CacheControl`，方便您自己保存记录。
+  想节省额度，就不要在 `max-age` 内再次调用。要检查自己保存的记录，可将其 ETag 作为
+  `&finlight.CompanyGetOptions{IfNoneMatch: etag}` 传入；304 响应返回 `(nil, nil)`，同样消耗 1 个额度。
+  不传 `IfNoneMatch` 时不会发送 `If-None-Match` 头。
 - `Companies.Search`、`Companies.GetMany` 和 `Sources.List` 返回 `Items` 和 `Skipped`；
   搜索页的 `ArticlePage.Skipped` 同理。无法读取的条目会放在这里。
 
@@ -302,7 +303,7 @@ client, err := finlight.NewClient(finlight.Config{
 })
 ```
 
-零值表示默认值。时长使用 `time.Duration`。默认开启的功能可用负数（`MaxRetries`、`CompanyCacheSize`）
+零值表示默认值。时长使用 `time.Duration`。默认开启的功能可用负数（`MaxRetries`）
 或 `Disable...` 字段关闭。
 
 | 键 | 默认值 | 含义 |
@@ -318,7 +319,6 @@ client, err := finlight.NewClient(finlight.Config{
 | `BurstWait` | 10 秒 | 缺少 `Retry-After` 时的突发等待 |
 | `MaxPages` | 10 | `SearchAll` 的页数上限 |
 | `MaxResponseBytes` | 32 MiB | REST 响应的大小上限 |
-| `CompanyCacheSize` | 256 | `Companies.Get` 保存的记录数（负数：关闭） |
 | `PingInterval` | 25 秒 | 流的 ping |
 | `WatchdogTimeout` | 60 秒 | 超过该时间没有 pong 时重连 |
 | `RotationInterval` | 115 分钟 | 在 2 小时上限前建立新连接 |

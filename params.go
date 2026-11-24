@@ -170,8 +170,9 @@ func (p CompanySearchParams) validate() error {
 
 // CompanyGetOptions are the options of Companies.Get.
 type CompanyGetOptions struct {
-	// IfNoneMatch is an ETag from an earlier response. When the server answers
-	// 304, Get returns (nil, nil): not modified.
+	// IfNoneMatch is an ETag from an earlier response (CacheInfo().ETag), sent
+	// as If-None-Match. When the server answers 304, Get returns (nil, nil):
+	// not modified. The 304 costs 1 credit too.
 	IfNoneMatch string
 }
 

@@ -19,7 +19,6 @@ const (
 	defaultBurstWait              = 10 * time.Second
 	defaultMaxPages               = 10
 	defaultMaxResponseBytes       = 32 << 20
-	defaultCompanyCacheSize       = 256
 	defaultPingInterval           = 25 * time.Second
 	defaultWatchdogTimeout        = 60 * time.Second
 	defaultRotationInterval       = 115 * time.Minute
@@ -47,8 +46,8 @@ const (
 
 // Config configures a Client. Only APIKey is required; every zero-valued field
 // falls back to its documented default. Integer limits that may be turned off
-// (MaxRetries, CompanyCacheSize) take a negative value for "off", because 0
-// means "default" in Go.
+// (MaxRetries) take a negative value for "off", because 0 means "default" in
+// Go.
 type Config struct {
 	APIKey  string // required
 	BaseURL string // default https://api.finlight.me
@@ -74,9 +73,6 @@ type Config struct {
 	MaxPages int
 	// MaxResponseBytes caps a REST response body (default 32 MiB).
 	MaxResponseBytes int64
-	// CompanyCacheSize is the number of company records kept for ETag
-	// revalidation (default 256, negative: off).
-	CompanyCacheSize int
 
 	PingInterval       time.Duration // default 25 s
 	WatchdogTimeout    time.Duration // default 60 s without pong
@@ -173,12 +169,6 @@ func (c Config) withDefaults() (Config, error) {
 	}
 	if c.MaxResponseBytes <= 0 {
 		c.MaxResponseBytes = defaultMaxResponseBytes
-	}
-	switch {
-	case c.CompanyCacheSize == 0:
-		c.CompanyCacheSize = defaultCompanyCacheSize
-	case c.CompanyCacheSize < 0:
-		c.CompanyCacheSize = 0
 	}
 	if c.SearchFailedThreshold <= 0 {
 		c.SearchFailedThreshold = defaultSearchFailedThreshold

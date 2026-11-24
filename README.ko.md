@@ -119,7 +119,7 @@ article, err = client.Articles.GetByLink(ctx, "https://www.reuters.com/...", nil
 
 companies, err := client.Companies.Search(ctx, finlight.CompanySearchParams{Q: "NVDA", MIC: "XNAS"}) // at most 10, no pages
 companies, err = client.Companies.GetMany(ctx, []int64{4821, 1001})
-company, err := client.Companies.Get(ctx, 4821, nil) // revalidated with its ETag next time
+company, err := client.Companies.Get(ctx, 4821, nil) // the SDK keeps no cache
 fmt.Println(company.CacheInfo().ETag, company.CacheInfo().CacheControl)
 
 sources, err := client.Sources.List(ctx)
@@ -131,9 +131,10 @@ sources, err := client.Sources.List(ctx)
 - 기업·소스 조회는 기사 요청처럼 요청마다 1크레딧을 사용합니다(`Companies.GetMany`는 요청당 1).
   304 재검증과 오류 응답도 1크레딧을 사용하며, 조회에서도 429가 올 수 있습니다.
 - 소스가 분류되지 않았으면 `Source.Type`과 `Article.Source.Type`은 nil입니다.
-- `Companies.Get`은 최근 레코드를 보관하고 ETag로 재검증합니다(`CompanyCacheSize`).
-  직접 `&finlight.CompanyGetOptions{IfNoneMatch: etag}`를 쓰면 304 응답은 `(nil, nil)`을 반환합니다.
-  `CacheInfo()`는 `ETag`, `CacheControl`, `NotModified`를 제공합니다.
+- SDK는 기업 레코드를 캐시하지 않습니다. `CacheInfo()`가 `ETag`와 `CacheControl`을 제공하므로
+  레코드는 직접 보관할 수 있습니다. 크레딧을 아끼려면 `max-age` 안에는 다시 호출하지 마세요.
+  보관한 레코드를 확인하려면 그 ETag를 `&finlight.CompanyGetOptions{IfNoneMatch: etag}`로 넘기세요.
+  304 응답은 `(nil, nil)`을 반환하며 이것도 1크레딧을 사용합니다. `IfNoneMatch`가 없으면 `If-None-Match` 헤더를 보내지 않습니다.
 - `Companies.Search`, `Companies.GetMany`, `Sources.List`는 `Items`와 `Skipped`를 반환합니다.
   검색 페이지의 `ArticlePage.Skipped`도 같습니다. 읽을 수 없는 항목은 여기에 들어갑니다.
 
@@ -307,8 +308,7 @@ client, err := finlight.NewClient(finlight.Config{
 })
 ```
 
-0 값은 기본값을 뜻합니다. 시간은 `time.Duration`입니다. 기본으로 켜진 기능은 음수(`MaxRetries`,
-`CompanyCacheSize`)나 `Disable...` 필드로 끌 수 있습니다.
+0 값은 기본값을 뜻합니다. 시간은 `time.Duration`입니다. 기본으로 켜진 기능은 음수(`MaxRetries`)나 `Disable...` 필드로 끌 수 있습니다.
 
 | 키 | 기본값 | 의미 |
 |---|---|---|
@@ -323,7 +323,6 @@ client, err := finlight.NewClient(finlight.Config{
 | `BurstWait` | 10초 | `Retry-After`가 없을 때의 버스트 대기 |
 | `MaxPages` | 10 | `SearchAll`의 페이지 상한 |
 | `MaxResponseBytes` | 32 MiB | REST 응답 크기 상한 |
-| `CompanyCacheSize` | 256 | `Companies.Get`이 보관하는 레코드 수(음수: 끔) |
 | `PingInterval` | 25초 | 스트림 ping |
 | `WatchdogTimeout` | 60초 | 이 시간 동안 pong이 없으면 재연결 |
 | `RotationInterval` | 115분 | 2시간 제한 전에 새 연결 |

@@ -446,11 +446,12 @@ type CompanyRecord struct {
 	cache CacheInfo
 }
 
-// CacheInfo carries the caching headers of a companies.get response.
+// CacheInfo carries the caching headers of a companies.get response. The SDK
+// keeps no cache of its own; use them to cache the record yourself and pass
+// ETag back as CompanyGetOptions.IfNoneMatch.
 type CacheInfo struct {
 	ETag         string // the ETag header ("" when none)
 	CacheControl string // the Cache-Control header
-	NotModified  bool   // true when the SDK revalidated its cached copy (304)
 }
 
 // RawJSON returns the record exactly as received.

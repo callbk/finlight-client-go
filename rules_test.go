@@ -144,7 +144,7 @@ func TestConfigDefaultsAndURLs(t *testing.T) {
 		{cfg.Timeout, 30 * time.Second}, {cfg.TotalTimeout, time.Duration(0)}, {cfg.MaxRetries, 3},
 		{cfg.RetryBaseDelay, 500 * time.Millisecond}, {cfg.RetryMaxDelay, 8 * time.Second},
 		{cfg.RetryOnBurst, BurstRetryOnce}, {cfg.BurstWait, 10 * time.Second}, {cfg.MaxPages, 10},
-		{cfg.MaxResponseBytes, int64(32 << 20)}, {cfg.CompanyCacheSize, 256},
+		{cfg.MaxResponseBytes, int64(32 << 20)},
 		{cfg.PingInterval, 25 * time.Second}, {cfg.WatchdogTimeout, 60 * time.Second},
 		{cfg.RotationInterval, 115 * time.Minute}, {cfg.ReconnectBaseDelay, time.Second},
 		{cfg.ReconnectMaxDelay, 30 * time.Second}, {cfg.LongBackoff, 60 * time.Second},
@@ -157,8 +157,8 @@ func TestConfigDefaultsAndURLs(t *testing.T) {
 			t.Errorf("default %d = %v, want %v", i, w.got, w.want)
 		}
 	}
-	off, _ := NewClient(Config{APIKey: "k", MaxRetries: -1, CompanyCacheSize: -1, MaxMessageBytes: 1})
-	if off.cfg.MaxRetries != 0 || off.cfg.CompanyCacheSize != 0 || off.cfg.MaxMessageBytes != 16<<20 {
+	off, _ := NewClient(Config{APIKey: "k", MaxRetries: -1, MaxMessageBytes: 1})
+	if off.cfg.MaxRetries != 0 || off.cfg.MaxMessageBytes != 16<<20 {
 		t.Errorf("off values: %+v", off.cfg.MaxRetries)
 	}
 	if _, err := NewClient(Config{APIKey: "k", RetryOnBurst: "twice"}); err == nil {
