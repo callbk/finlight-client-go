@@ -2,6 +2,7 @@ package finlight
 
 import (
 	"encoding/json"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -251,6 +252,63 @@ func TestRotationRefusedClosesOldAndRedials(t *testing.T) {
 					}
 					return 0
 				}) == 1
+			})
+		})
+	}
+}
+
+// A rotation dial refused for the quota does not end the stream while quota
+// reconnect is on: the old connection is closed and the stream dials again at
+// once, without a quota wait or OnError. Refusals that end a stream (401, quota
+// with DisableQuotaReconnect) still end it.
+func TestRotationRefusedForQuotaOrTerminal(t *testing.T) {
+	quota := dialReply{status: 403, body: `{"message":"WebSocket quota exceeded for the current period"}`}
+	for _, tc := range []struct {
+		name    string
+		refusal dialReply
+		config  Config
+		ends    bool
+	}{
+		{name: "quota, reconnect on", refusal: quota},
+		{name: "quota, reconnect off", refusal: quota, config: Config{DisableQuotaReconnect: true}, ends: true},
+		{name: "401", refusal: dialReply{status: 401, body: `{"message":"Unauthorized"}`}, ends: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := newWSMock(t)
+			p := startProbe(t, ws, probeOptions{apiKey: "sk_test", nonce: "c-1", config: tc.config})
+			defer p.stop()
+			old := ws.nextDial(t, "dial").conn
+			old.nextNonPing(t, "subscribe")
+			old.send(t, admittedFrame)
+			ws.push(tc.refusal)
+			p.advance(rotationForTest)
+			if d := ws.nextDial(t, "rotation dial"); d.conn != nil {
+				t.Fatal("the rotation dial was not refused")
+			}
+			waitFor(t, "old connection closed", func() bool { return !old.isOpen() })
+			if tc.ends {
+				waitFor(t, "the end", p.isDone)
+				p.with(func() {
+					var e *APIError
+					if !errors.As(p.terminal, &e) || e.Status != tc.refusal.status {
+						t.Errorf("terminal = %v, want the refusal", p.terminal)
+					}
+				})
+				return
+			}
+			d := ws.nextDial(t, "second rotation dial")
+			if d.conn == nil {
+				t.Fatal("the second rotation dial was refused")
+			}
+			d.conn.nextNonPing(t, "re-subscribe")
+			waitFor(t, "onReconnect", func() bool { return p.count(func() int { return len(p.reconnects) }) == 1 })
+			p.with(func() {
+				if p.reconnects[0].Reason != ReconnectReasonRotation {
+					t.Errorf("reconnect reason = %q", p.reconnects[0].Reason)
+				}
+				if len(p.quotaWaits) != 0 || len(p.errs) != 0 {
+					t.Errorf("quota waits %v, errors %v; want none", p.quotaWaits, p.errs)
+				}
 			})
 		})
 	}
