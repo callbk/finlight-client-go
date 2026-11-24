@@ -16,6 +16,12 @@ type SearchParams struct {
 	Sources        []string
 	OptInSources   []string
 	ExcludeSources []string
+	// SourceTypes keeps articles whose source has one of these types;
+	// ExcludeSourceTypes drops them. Both filter inside the source pool and
+	// never add a source to it. Articles of unclassified sources (source.type
+	// null) never match SourceTypes and are kept by ExcludeSourceTypes.
+	SourceTypes        []SourceType
+	ExcludeSourceTypes []SourceType
 	// From and To are sent unchanged. Send UTC with milliseconds, e.g.
 	// t.UTC().Format("2006-01-02T15:04:05.000Z"), or a date "2006-01-02".
 	From             string
@@ -71,6 +77,8 @@ func (p SearchParams) body() (map[string]any, error) {
 	setList("sources", p.Sources)
 	setList("optInSources", p.OptInSources)
 	setList("excludeSources", p.ExcludeSources)
+	setList("sourceTypes", toStrings(p.SourceTypes))
+	setList("excludeSourceTypes", toStrings(p.ExcludeSourceTypes))
 	setStr("from", p.From)
 	setStr("to", p.To)
 	setList("languages", p.Languages)

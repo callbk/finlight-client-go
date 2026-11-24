@@ -73,6 +73,7 @@ page, err := client.Articles.Search(ctx, finlight.SearchParams{
 	Languages:    []string{"en", "de"},
 	From:         time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02T15:04:05.000Z"),
 	EventTypes:   []finlight.EventType{finlight.EventTypeMNA},
+	SourceTypes:  []finlight.SourceType{finlight.SourceTypeNewswire, finlight.SourceTypeFinancialMedia},
 	MinRelevance: &rel,
 	OrderBy:      finlight.OrderByAvailableAt,
 	Include:      []finlight.IncludeBlock{finlight.IncludeBlockContent, finlight.IncludeBlockCompanies, finlight.IncludeBlockEvents},
@@ -82,6 +83,8 @@ fmt.Println(page.Pagination.HasMore, page.Pagination.NextCursor)
 ```
 
 `From` 和 `To` 按原样发送：请使用带毫秒的 UTC 时间或日期（`2026-11-01`）。
+`SourceTypes` 只保留、`ExcludeSourceTypes` 排除指定来源类型的文章（`finlight.SourceTypeValues()`）；
+未分类来源的文章永远不匹配 `SourceTypes`。
 `SearchAll` 会自动翻页。调用时请求体即被冻结，后续页面只添加 cursor。由于每一页都消耗配额，
 它在 `MaxPages` 页（默认 10）之后停止。
 
@@ -125,6 +128,7 @@ sources, err := client.Sources.List(ctx)
 - 未找到时返回 `APIKind` 为 `not_found` 的 `*finlight.APIError`，绝不会返回空结果。
 - 在文章 ID 引入之前索引的文章只能通过链接获取。
 - 公司查询需要 `entityAccess` 权限（否则 `APIKind` 为 `forbidden`）。
+- 来源未分类时，`Source.Type` 和 `Article.Source.Type` 为 nil。
 - `Companies.Get` 会保存最近的记录，并用其 ETag 重新验证（`CompanyCacheSize`）。
   使用自己的 `&finlight.CompanyGetOptions{IfNoneMatch: etag}` 时，304 响应返回 `(nil, nil)`。
   `CacheInfo()` 提供 `ETag`、`CacheControl` 和 `NotModified`。

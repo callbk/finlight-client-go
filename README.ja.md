@@ -74,6 +74,7 @@ page, err := client.Articles.Search(ctx, finlight.SearchParams{
 	Languages:    []string{"en", "de"},
 	From:         time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02T15:04:05.000Z"),
 	EventTypes:   []finlight.EventType{finlight.EventTypeMNA},
+	SourceTypes:  []finlight.SourceType{finlight.SourceTypeNewswire, finlight.SourceTypeFinancialMedia},
 	MinRelevance: &rel,
 	OrderBy:      finlight.OrderByAvailableAt,
 	Include:      []finlight.IncludeBlock{finlight.IncludeBlockContent, finlight.IncludeBlockCompanies, finlight.IncludeBlockEvents},
@@ -83,6 +84,8 @@ fmt.Println(page.Pagination.HasMore, page.Pagination.NextCursor)
 ```
 
 `From` と `To` は指定したまま送信されます。ミリ秒付きの UTC か日付（`2026-11-01`）を指定してください。
+`SourceTypes` はソースの種別で記事を絞り込み、`ExcludeSourceTypes` は除外します
+（`finlight.SourceTypeValues()`）。未分類ソースの記事は `SourceTypes` に一致しません。
 `SearchAll` はページ送りを自動で行います。呼び出した時点でリクエスト本文が固定され、以降のページでは
 cursor だけが追加されます。各ページがクォータを消費するため、`MaxPages` ページ（既定 10）で停止します。
 
@@ -126,6 +129,7 @@ sources, err := client.Sources.List(ctx)
 - 見つからない場合は `APIKind` が `not_found` の `*finlight.APIError` になり、空の結果にはなりません。
 - 記事 ID 導入前に索引された記事はリンクでのみ取得できます。
 - 企業の参照には `entityAccess` 権限が必要です（ない場合は `APIKind` が `forbidden`）。
+- ソースが未分類の場合、`Source.Type` と `Article.Source.Type` は nil です。
 - `Companies.Get` は最近のレコードを保持し、ETag で再検証します（`CompanyCacheSize`）。
   独自の `&finlight.CompanyGetOptions{IfNoneMatch: etag}` を使うと、304 応答は `(nil, nil)` を返します。
   `CacheInfo()` は `ETag`、`CacheControl`、`NotModified` を返します。

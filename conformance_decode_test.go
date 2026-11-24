@@ -46,6 +46,8 @@ var _ = conformance("V-01", func(t *testing.T) {
 	check("Importance (request)", toStrings(ImportanceValues()), list("request", "minImportance", "values"))
 	check("Importance", toStrings(ImportanceValues()), list("response", "importance", "values"))
 	check("SentimentLabel", toStrings(SentimentLabelValues()), list("response", "sentimentLabels", "values"))
+	check("SourceType (request)", toStrings(SourceTypeValues()), list("request", "sourceTypes", "values"))
+	check("SourceType (request exclude)", toStrings(SourceTypeValues()), list("request", "excludeSourceTypes", "values"))
 	check("SourceType", toStrings(SourceTypeValues()), list("response", "sourceTypes", "values"))
 	check("StreamEventName", toStrings(StreamEventNameValues()), list("websocket", "events", "values"))
 	check("StreamEventName articleEvents", toStrings(StreamEventNameArticleEvents()), list("websocket", "articleEvents", "values"))

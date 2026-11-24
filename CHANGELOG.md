@@ -7,7 +7,10 @@ speaks only the finlight API v3 (REST `/v3`, WebSocket `payloadVersion` 3, v3 we
 v1 does not compile unchanged. To stay on v1 (API v2), keep importing `github.com/callbk/finlight-client-go`.
 Migration guide: https://docs.finlight.me/migration/v2-to-v3
 
-Contract kit: 3.0.0-rc.3.
+Contract kit: 3.0.0-rc.4.
+
+<!-- Maintainers: tag this release only after the API v3 server with source types (contract
+3.0.0-rc.4: sourceTypes, excludeSourceTypes, source.type) is deployed to prod. -->
 
 ### Removed
 
@@ -28,6 +31,12 @@ Contract kit: 3.0.0-rc.3.
   `ContentPresent`, `SentimentPresent`, `CompaniesPresent` and `EventsPresent`.
 - Open vocabularies as named string types with `<Type><Value>` constants (for example
   `finlight.CompanyRoleAcquirer`, `finlight.ReconnectReasonRotation`) and `...Values()` functions.
+- Source types: `SearchParams.SourceTypes` and `SearchParams.ExcludeSourceTypes` (`[]finlight.SourceType`)
+  filter a search by the type of the article's source; articles of unclassified sources never match
+  `SourceTypes` and are kept by `ExcludeSourceTypes`. Streams do not take them. `finlight.SourceType` has
+  the constants `SourceTypeNewswire`, `SourceTypePressRelease`, `SourceTypeFinancialMedia`,
+  `SourceTypeGeneralMedia`, `SourceTypeAggregator`, `SourceTypeBlog` and `SourceTypeGovernment`.
+  `Article.Source.Type` and `Source.Type` are nil when the source is not classified.
 - `client.Stream` and `client.RawStream` return a `*finlight.Stream`; `Events()` is an
   `iter.Seq2[StreamEvent, error]`. Ping and pong watchdog, rotation before the 2 hour limit, the same
   subscribe after every reconnect, a duplicate filter, a `Takeover` option, typed terminal errors and the

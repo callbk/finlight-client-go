@@ -71,6 +71,7 @@ page, err := client.Articles.Search(ctx, finlight.SearchParams{
 	Languages:    []string{"en", "de"},
 	From:         time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02T15:04:05.000Z"),
 	EventTypes:   []finlight.EventType{finlight.EventTypeMNA},
+	SourceTypes:  []finlight.SourceType{finlight.SourceTypeNewswire, finlight.SourceTypeFinancialMedia},
 	MinRelevance: &rel,
 	OrderBy:      finlight.OrderByAvailableAt,
 	Include:      []finlight.IncludeBlock{finlight.IncludeBlockContent, finlight.IncludeBlockCompanies, finlight.IncludeBlockEvents},
@@ -80,6 +81,8 @@ fmt.Println(page.Pagination.HasMore, page.Pagination.NextCursor)
 ```
 
 `From` and `To` are sent as you give them: send UTC with milliseconds or a date (`2026-11-01`).
+`SourceTypes` keeps and `ExcludeSourceTypes` drops articles by the type of their source
+(`finlight.SourceTypeValues()`); articles of unclassified sources never match `SourceTypes`.
 `SearchAll` walks the pages for you. It freezes the request body when you call it and only adds the
 cursor on later pages. It stops after `MaxPages` pages (default 10), because every page costs quota.
 
@@ -124,6 +127,7 @@ sources, err := client.Sources.List(ctx)
 - A miss is an `*finlight.APIError` with `APIKind` `not_found`; it is never an empty result.
 - Articles indexed before article ids existed can only be fetched by link.
 - Company lookups need the `entityAccess` entitlement (`APIKind` `forbidden` otherwise).
+- `Source.Type` and `Article.Source.Type` are nil when the source is not classified.
 - `Companies.Get` keeps the last records and revalidates them with their ETag (`CompanyCacheSize`).
   With your own `&finlight.CompanyGetOptions{IfNoneMatch: etag}`, a 304 answer returns `(nil, nil)`.
   `CacheInfo()` gives `ETag`, `CacheControl` and `NotModified`.

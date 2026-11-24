@@ -156,11 +156,28 @@ func SentimentLabelValues() []SentimentLabel {
 	return []SentimentLabel{SentimentLabelPositive, SentimentLabelNegative, SentimentLabelNeutral}
 }
 
-// SourceType is the type of a source. The server sends null today.
+// SourceType is the type of a source (source.type of an article, type of a
+// /v3/sources entry). Both are nullable: a source may be unclassified.
 type SourceType string
 
-// SourceTypeValues returns the known source types (none today).
-func SourceTypeValues() []SourceType { return []SourceType{} }
+// Known source types.
+const (
+	SourceTypeNewswire       SourceType = "newswire"
+	SourceTypePressRelease   SourceType = "press_release"
+	SourceTypeFinancialMedia SourceType = "financial_media"
+	SourceTypeGeneralMedia   SourceType = "general_media"
+	SourceTypeAggregator     SourceType = "aggregator"
+	SourceTypeBlog           SourceType = "blog"
+	SourceTypeGovernment     SourceType = "government"
+)
+
+// SourceTypeValues returns the known source types.
+func SourceTypeValues() []SourceType {
+	return []SourceType{
+		SourceTypeNewswire, SourceTypePressRelease, SourceTypeFinancialMedia, SourceTypeGeneralMedia,
+		SourceTypeAggregator, SourceTypeBlog, SourceTypeGovernment,
+	}
+}
 
 // StreamEventName is the wire name of a WebSocket frame.
 type StreamEventName string

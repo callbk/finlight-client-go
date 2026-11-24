@@ -73,6 +73,7 @@ page, err := client.Articles.Search(ctx, finlight.SearchParams{
 	Languages:    []string{"en", "de"},
 	From:         time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02T15:04:05.000Z"),
 	EventTypes:   []finlight.EventType{finlight.EventTypeMNA},
+	SourceTypes:  []finlight.SourceType{finlight.SourceTypeNewswire, finlight.SourceTypeFinancialMedia},
 	MinRelevance: &rel,
 	OrderBy:      finlight.OrderByAvailableAt,
 	Include:      []finlight.IncludeBlock{finlight.IncludeBlockContent, finlight.IncludeBlockCompanies, finlight.IncludeBlockEvents},
@@ -82,6 +83,8 @@ fmt.Println(page.Pagination.HasMore, page.Pagination.NextCursor)
 ```
 
 `From`과 `To`는 주어진 그대로 전송됩니다. 밀리초가 포함된 UTC나 날짜(`2026-11-01`)를 보내세요.
+`SourceTypes`는 소스 유형으로 기사를 남기고 `ExcludeSourceTypes`는 제외합니다
+(`finlight.SourceTypeValues()`). 분류되지 않은 소스의 기사는 `SourceTypes`에 절대 일치하지 않습니다.
 `SearchAll`은 페이지를 자동으로 넘깁니다. 호출 시점에 요청 본문이 고정되고, 이후 페이지에는 cursor만
 추가됩니다. 페이지마다 쿼터가 들기 때문에 `MaxPages` 페이지(기본 10) 후에 멈춥니다.
 
@@ -125,6 +128,7 @@ sources, err := client.Sources.List(ctx)
 - 찾지 못하면 `APIKind`가 `not_found`인 `*finlight.APIError`가 되며, 빈 결과가 되지 않습니다.
 - 기사 ID 도입 전에 색인된 기사는 링크로만 가져올 수 있습니다.
 - 기업 조회에는 `entityAccess` 권한이 필요합니다(없으면 `APIKind`가 `forbidden`).
+- 소스가 분류되지 않았으면 `Source.Type`과 `Article.Source.Type`은 nil입니다.
 - `Companies.Get`은 최근 레코드를 보관하고 ETag로 재검증합니다(`CompanyCacheSize`).
   직접 `&finlight.CompanyGetOptions{IfNoneMatch: etag}`를 쓰면 304 응답은 `(nil, nil)`을 반환합니다.
   `CacheInfo()`는 `ETag`, `CacheControl`, `NotModified`를 제공합니다.

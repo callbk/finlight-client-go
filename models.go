@@ -37,8 +37,11 @@ type Article struct {
 
 // ArticleSource is the source block of an article.
 type ArticleSource struct {
-	Domain string      `json:"domain"`
-	Type   *SourceType `json:"type"`
+	Domain string `json:"domain"`
+	// Type is the source type when the article was indexed; nil when the
+	// source is unclassified or the article predates source types. It can lag
+	// the type in /v3/sources after a reclassification.
+	Type *SourceType `json:"type"`
 }
 
 // Media is one image of an article.
@@ -521,8 +524,9 @@ func decodeCompanyRecord(raw json.RawMessage, path string) (*CompanyRecord, erro
 	return r, nil
 }
 
-// Source is an entry of /v3/sources. HasContent is absent without
-// full-article access ("not entitled to know", never "no content").
+// Source is an entry of /v3/sources. Type is nil when the source is
+// unclassified. HasContent is absent without full-article access ("not
+// entitled to know", never "no content").
 type Source struct {
 	Domain     string      `json:"domain"`
 	Name       *string     `json:"name"`

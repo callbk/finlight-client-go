@@ -1,6 +1,6 @@
 # Conformance cases and their tests
 
-Contract kit 3.0.0-rc.3 (`testdata/conformance/`). Every case of `conformance.md` runs as its own
+Contract kit 3.0.0-rc.4 (`testdata/conformance/`). Every case of `conformance.md` runs as its own
 subtest of `TestConformance`; a case without a test fails that test. The W cases run in the `webhook`
 package, all others in the root package. D-10 runs one subtest per matrix sub-case (256).
 

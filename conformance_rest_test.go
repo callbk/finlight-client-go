@@ -328,6 +328,11 @@ var _ = conformance("R-10", func(t *testing.T) {
 	if list.Items[2].IsDefault != true {
 		t.Error("isDefault lands on IsDefault")
 	}
+	// type is an open SourceType, nil when the source is unclassified.
+	if list.Items[0].Type != nil || list.Items[1].Type == nil || *list.Items[1].Type != SourceTypeBlog ||
+		list.Items[2].Type == nil || *list.Items[2].Type != SourceTypeFinancialMedia {
+		t.Errorf("source types = %v, %v, %v", list.Items[0].Type, list.Items[1].Type, list.Items[2].Type)
+	}
 })
 
 var _ = conformance("R-11", func(t *testing.T) {
@@ -352,13 +357,14 @@ func searchWireKeys(t *testing.T) []string {
 	yes, rel := true, 0.5
 	p := SearchParams{
 		Query: "q", Sources: []string{"a"}, OptInSources: []string{"a"}, ExcludeSources: []string{"a"},
+		SourceTypes: []SourceType{"blog"}, ExcludeSourceTypes: []SourceType{"blog"},
 		From: "f", To: "t", Languages: []string{"en"}, Tickers: []string{"X"}, Countries: []string{"US"},
 		Categories: []string{"c"}, HasContent: &yes, Roles: []CompanyRole{"r"}, MinRelevance: &rel,
 		EventTypes: []EventType{"e"}, EventDirections: []EventDirection{"d"}, MinImportance: "low",
 		Sectors: []string{"s"}, CompanyCountries: []string{"US"}, Exchanges: []string{"X"},
 		OrderBy: "publishedAt", Order: "asc", Limit: 5, Cursor: "c", Include: []IncludeBlock{"content"},
 	}
-	if n := reflect.TypeOf(p).NumField(); n != 24 {
+	if n := reflect.TypeOf(p).NumField(); n != 26 {
 		t.Fatalf("SearchParams has %d fields; update this test", n)
 	}
 	b, err := p.body()
