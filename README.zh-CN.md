@@ -128,6 +128,8 @@ sources, err := client.Sources.List(ctx)
 - 未找到时返回 `APIKind` 为 `not_found` 的 `*finlight.APIError`，绝不会返回空结果。
 - 在文章 ID 引入之前索引的文章只能通过链接获取。
 - 公司查询需要 `entityAccess` 权限（否则 `APIKind` 为 `forbidden`）。
+- 每次成功的公司或来源查询消耗 1 个额度（`Companies.GetMany` 每个请求计 1 次）。
+  304 重新验证和错误响应不计费；查询也可能返回 429。
 - 来源未分类时，`Source.Type` 和 `Article.Source.Type` 为 nil。
 - `Companies.Get` 会保存最近的记录，并用其 ETag 重新验证（`CompanyCacheSize`）。
   使用自己的 `&finlight.CompanyGetOptions{IfNoneMatch: etag}` 时，304 响应返回 `(nil, nil)`。

@@ -13,7 +13,9 @@ import (
 
 // CompaniesService groups the company master data endpoints
 // (Client.Companies). They need the entityAccess entitlement, else the server
-// answers 403 FORBIDDEN. They are not metered.
+// answers 403 FORBIDDEN. Each successful request costs 1 credit (GetMany one
+// per request, however many ids); a 304 revalidation and error answers are
+// free.
 type CompaniesService struct {
 	c     *Client
 	cache *companyCache
@@ -75,7 +77,8 @@ func (s *CompaniesService) list(ctx context.Context, q url.Values) (*CompanyList
 // Get fetches one company with its ETag and Cache-Control (see
 // CompanyRecord.CacheInfo). With opts.IfNoneMatch set and an unchanged record,
 // the server answers 304 and Get returns (nil, nil). Without it, the SDK
-// revalidates its own cached copy and returns that copy on a 304.
+// revalidates its own cached copy and returns that copy on a 304. A 200 costs
+// 1 credit; a 304 is free.
 func (s *CompaniesService) Get(ctx context.Context, companyID int64, opts *CompanyGetOptions) (*CompanyRecord, error) {
 	if companyID < 1 {
 		return nil, validationErr("companyId", "companyId starts at 1, got %d", companyID)

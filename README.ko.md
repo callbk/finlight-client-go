@@ -128,6 +128,8 @@ sources, err := client.Sources.List(ctx)
 - 찾지 못하면 `APIKind`가 `not_found`인 `*finlight.APIError`가 되며, 빈 결과가 되지 않습니다.
 - 기사 ID 도입 전에 색인된 기사는 링크로만 가져올 수 있습니다.
 - 기업 조회에는 `entityAccess` 권한이 필요합니다(없으면 `APIKind`가 `forbidden`).
+- 기업·소스 조회는 성공한 요청마다 1크레딧을 사용합니다(`Companies.GetMany`는 요청당 1).
+  304 재검증과 오류 응답은 무료이며, 조회에서도 429가 올 수 있습니다.
 - 소스가 분류되지 않았으면 `Source.Type`과 `Article.Source.Type`은 nil입니다.
 - `Companies.Get`은 최근 레코드를 보관하고 ETag로 재검증합니다(`CompanyCacheSize`).
   직접 `&finlight.CompanyGetOptions{IfNoneMatch: etag}`를 쓰면 304 응답은 `(nil, nil)`을 반환합니다.

@@ -7,10 +7,11 @@ speaks only the finlight API v3 (REST `/v3`, WebSocket `payloadVersion` 3, v3 we
 v1 does not compile unchanged. To stay on v1 (API v2), keep importing `github.com/callbk/finlight-client-go`.
 Migration guide: https://docs.finlight.me/migration/v2-to-v3
 
-Contract kit: 3.0.0-rc.4.
+Contract kit: 3.0.0-rc.5.
 
-<!-- Maintainers: tag this release only after the API v3 server with source types (contract
-3.0.0-rc.4: sourceTypes, excludeSourceTypes, source.type) is deployed to prod. -->
+<!-- Maintainers: tag this release only after the API v3 server with source types and lookup
+credits (contract 3.0.0-rc.5: sourceTypes, excludeSourceTypes, source.type; 1 credit per successful
+lookup) is deployed to prod. -->
 
 ### Removed
 
@@ -25,7 +26,8 @@ Contract kit: 3.0.0-rc.4.
   with `All()` and `Pages()` as `iter.Seq2`, `NextCursor`, `Truncated`, `PagesFetched`), `Articles.Get`,
   `Articles.GetByLink`, `Companies.Search`, `Companies.GetMany`, `Companies.Get` (ETag revalidation,
   `CacheInfo()`, `IfNoneMatch` with 304 as `(nil, nil)`) and `Sources.List`. Lists carry `Skipped`
-  (`SkippedEntry`) for entries that could not be read.
+  (`SkippedEntry`) for entries that could not be read. Each successful lookup costs 1 credit
+  (`Companies.GetMany` one per request); a 304 revalidation and error answers are free.
 - Tolerant models: exact key matching, required keys only where the contract says so, `RawJSON()`,
   strict `...Time()` accessors, and `Field[T]` for the gated keys (absent, null, value) with
   `ContentPresent`, `SentimentPresent`, `CompaniesPresent` and `EventsPresent`.
