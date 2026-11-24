@@ -129,8 +129,8 @@ sources, err := client.Sources.List(ctx)
 - 見つからない場合は `APIKind` が `not_found` の `*finlight.APIError` になり、空の結果にはなりません。
 - 記事 ID 導入前に索引された記事はリンクでのみ取得できます。
 - 企業の参照には `entityAccess` 権限が必要です（ない場合は `APIKind` が `forbidden`）。
-- 企業・ソースの参照は成功したリクエストごとに 1 クレジットを消費します（`Companies.GetMany` は 1 リクエストで 1）。
-  304 の再検証とエラー応答は無料です。参照でも 429 が返ることがあります。
+- 企業・ソースの参照は記事リクエストと同じく、リクエストごとに 1 クレジットを消費します（`Companies.GetMany` は 1 リクエストで 1）。
+  304 の再検証とエラー応答も 1 クレジットを消費します。参照でも 429 が返ることがあります。
 - ソースが未分類の場合、`Source.Type` と `Article.Source.Type` は nil です。
 - `Companies.Get` は最近のレコードを保持し、ETag で再検証します（`CompanyCacheSize`）。
   独自の `&finlight.CompanyGetOptions{IfNoneMatch: etag}` を使うと、304 応答は `(nil, nil)` を返します。

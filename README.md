@@ -127,8 +127,8 @@ sources, err := client.Sources.List(ctx)
 - A miss is an `*finlight.APIError` with `APIKind` `not_found`; it is never an empty result.
 - Articles indexed before article ids existed can only be fetched by link.
 - Company lookups need the `entityAccess` entitlement (`APIKind` `forbidden` otherwise).
-- Each successful company or source lookup costs 1 credit (`Companies.GetMany` one per request).
-  A 304 revalidation and error answers are free; a lookup can also get a 429.
+- Each company or source lookup costs 1 credit, like an article request (`Companies.GetMany` one per
+  request). A 304 revalidation and error answers cost 1 credit too; a lookup can also get a 429.
 - `Source.Type` and `Article.Source.Type` are nil when the source is not classified.
 - `Companies.Get` keeps the last records and revalidates them with their ETag (`CompanyCacheSize`).
   With your own `&finlight.CompanyGetOptions{IfNoneMatch: etag}`, a 304 answer returns `(nil, nil)`.

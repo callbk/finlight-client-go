@@ -10,8 +10,8 @@ import (
 type SourcesService struct{ c *Client }
 
 // List returns the sources of the subscription, sorted by domain. HasContent
-// is absent on every source without full-article access. Each successful
-// request costs 1 credit; error answers are free.
+// is absent on every source without full-article access. Each request costs
+// 1 credit, error answers included.
 func (s *SourcesService) List(ctx context.Context) (*SourceList, error) {
 	resp, err := s.c.t.do(ctx, apiRequest{method: http.MethodGet, path: "/v3/sources"})
 	if err != nil {

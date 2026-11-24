@@ -10,8 +10,8 @@ Migration guide: https://docs.finlight.me/migration/v2-to-v3
 Contract kit: 3.0.0-rc.5.
 
 <!-- Maintainers: tag this release only after the API v3 server with source types and lookup
-credits (contract 3.0.0-rc.5: sourceTypes, excludeSourceTypes, source.type; 1 credit per successful
-lookup) is deployed to prod. -->
+credits (contract 3.0.0-rc.5: sourceTypes, excludeSourceTypes, source.type; 1 credit per lookup
+request, 304 and errors included) is deployed to prod. -->
 
 ### Removed
 
@@ -26,8 +26,8 @@ lookup) is deployed to prod. -->
   with `All()` and `Pages()` as `iter.Seq2`, `NextCursor`, `Truncated`, `PagesFetched`), `Articles.Get`,
   `Articles.GetByLink`, `Companies.Search`, `Companies.GetMany`, `Companies.Get` (ETag revalidation,
   `CacheInfo()`, `IfNoneMatch` with 304 as `(nil, nil)`) and `Sources.List`. Lists carry `Skipped`
-  (`SkippedEntry`) for entries that could not be read. Each successful lookup costs 1 credit
-  (`Companies.GetMany` one per request); a 304 revalidation and error answers are free.
+  (`SkippedEntry`) for entries that could not be read. Each lookup costs 1 credit, like an article
+  request (`Companies.GetMany` one per request); a 304 revalidation and error answers cost 1 credit too.
 - Tolerant models: exact key matching, required keys only where the contract says so, `RawJSON()`,
   strict `...Time()` accessors, and `Field[T]` for the gated keys (absent, null, value) with
   `ContentPresent`, `SentimentPresent`, `CompaniesPresent` and `EventsPresent`.
