@@ -53,14 +53,14 @@ func TestPublicNames(t *testing.T) {
 			ReconnectBaseDelay: 0, ReconnectMaxDelay: 0, LongBackoff: 0, DisableQuotaReconnect: false,
 			QuotaReconnectInterval: 0, SearchFailedThreshold: 0, DedupeCacheSize: 0, MaxMessageBytes: 0,
 			ConnectTimeout: 0, Logger: (*slog.Logger)(nil), Clock: nil, HTTPClient: (*http.Client)(nil)}
-		_ = APIError{Status: 0, Code: "", Type: "", Title: "", Detail: "", RequestID: "", Errors: []FieldIssue{{Field: "", Issue: "", AllowedValues: nil, Constraints: nil}}, APIKind: APIKindOther, Raw: "", LimitType: RateLimitBurst, RetryAfter: 0}
+		_ = APIError{Status: 0, Code: "", Type: "", Title: "", Detail: "", RequestID: "", Errors: []FieldIssue{{Field: "", Issue: "", AllowedValues: nil, Constraints: nil}}, APIKind: APIKindOther, Raw: "", LimitType: RateLimitTypeBurst, RetryAfter: 0}
 		_ = ValidationError{Param: ""}
 		_ = DecodeError{Path: "", Raw: ""}
 		_ = PreemptedError{Reason: PreemptReasonConnectionLimit, NewLeaseID: nil, Timestamp: 0}
 		_ = TimeoutError{NetworkError: &NetworkError{}}
-		_ = StreamEvent{Kind: StreamEventKindCreated, Event: StreamEventArticleCreated, Data: nil}
+		_ = StreamEvent{Kind: StreamEventKindCreated, Event: StreamEventNameArticleCreated, Data: nil}
 		_ = AdmittedInfo{LeaseID: "", ServerNow: 0, ClientNonce: nil}
-		_ = ReconnectInfo{LastSeenAt: nil, Reason: ReconnectRotation, Connection: 0}
+		_ = ReconnectInfo{LastSeenAt: nil, Reason: ReconnectReasonRotation, Connection: 0}
 		_ = QuotaWaitInfo{Error: nil, NextAttemptIn: 0, Attempt: 0}
 		_ = StreamOptions{Takeover: false, OnAdmitted: nil, OnReconnect: nil, OnError: nil, OnQuotaWait: nil}
 		_ = SkippedEntry{Index: 0, Raw: nil, Reason: ""}

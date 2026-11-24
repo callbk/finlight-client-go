@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -52,7 +54,7 @@ func TestNoV2KeysInRequests(t *testing.T) {
 }
 
 func TestSourceHasNoV2Paths(t *testing.T) {
-	bad := regexp.MustCompile(`(?i)/v1/|/v2/|sendarticle|admin_?kick|include_?content|include_?entities|page_?size|publish_?date|is_?update`)
+	bad := regexp.MustCompile(`(?i)/v1/|/v2/|sendarticle|admin_?kick|include_?content|include_?entities|page_?size|publish_?date|is_?update|\bextended\b`)
 	err := filepath.WalkDir(".", func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -224,6 +226,15 @@ func TestKeyNeverLeaks(t *testing.T) {
 		texts = append(texts, err.Error(), fmt.Sprintf("%+v %#v", err, err))
 	}
 	texts = append(texts, buf.String(), fmt.Sprintf("%v %+v %#v %s", c.cfg, c.cfg, c.cfg, c), fmt.Sprintf("%+v %#v", c, c), fmt.Sprintf("%+v", s))
+	// A dereferenced client, other verbs, and a client inside an unexported
+	// field, where fmt cannot call methods.
+	type holder struct{ c Client }
+	texts = append(texts,
+		fmt.Sprintf("%v %+v %#v %s %x %d %q", *c, *c, *c, *c, *c, *c, *c),
+		fmt.Sprintf("%v %+v %#v", holder{*c}, holder{*c}, holder{*c}),
+		fmt.Sprintf("%v %+v %#v", *c.t, *c.t, *c.t),
+		fmt.Sprintf("%x %d %q", c.cfg, c.cfg, c.cfg),
+		fmt.Sprintf("%+v %#v %x", Config{APIKey: key}, Config{APIKey: key}, Config{APIKey: key}))
 	for _, txt := range texts {
 		if strings.Contains(txt, key) {
 			t.Fatalf("the API key leaked: %s", txt)
@@ -270,15 +281,15 @@ func TestBurstWithoutRetryAfterWaitsBurstWait(t *testing.T) {
 	clock := &instantClock{}
 	_, err := newTestClient(t, Config{BaseURL: m.URL(), Clock: clock}).Articles.Get(t.Context(), "x", nil)
 	var ae *APIError
-	if !errors.As(err, &ae) || ae.LimitType != RateLimitBurst || len(m.reqs()) != 2 {
+	if !errors.As(err, &ae) || ae.LimitType != RateLimitTypeBurst || len(m.reqs()) != 2 {
 		t.Fatalf("err = %v, requests %d", err, len(m.reqs()))
 	}
 	if w := clock.sleeps(); len(w) != 1 || w[0] != 10*time.Second {
 		t.Errorf("waits = %v", w)
 	}
 	// The detail text classifies a monthly limit without limitType.
-	if classifyRateLimit("Throttling Exception: Exceeded token limit of 1000 for the current period.") != RateLimitMonthly ||
-		classifyRateLimit("something else") != RateLimitUnknown {
+	if classifyRateLimit("Throttling Exception: Exceeded token limit of 1000 for the current period.") != RateLimitTypeMonthly ||
+		classifyRateLimit("something else") != RateLimitTypeUnknown {
 		t.Error("detail classification")
 	}
 }
@@ -418,6 +429,10 @@ func TestLocalValidation(t *testing.T) {
 	_, checks["limit"] = c.Articles.Search(ctx, SearchParams{Limit: 101})
 	_, checks["limit-negative"] = c.Articles.Search(ctx, SearchParams{Limit: -1})
 	_, checks["minRelevance"] = c.Articles.Search(ctx, SearchParams{MinRelevance: &rel})
+	nan, inf := math.NaN(), math.Inf(1)
+	_, checks["minRelevance-NaN"] = c.Articles.Search(ctx, SearchParams{MinRelevance: &nan})
+	_, checks["minRelevance-Inf"] = c.Articles.Search(ctx, SearchParams{MinRelevance: &inf})
+	_, checks["searchAll-NaN"] = c.Articles.SearchAll(ctx, SearchParams{MinRelevance: &nan}, nil)
 	_, checks["include"] = c.Articles.Search(ctx, SearchParams{Include: []IncludeBlock{"a", "b", "c", "d"}})
 	_, checks["searchAll"] = c.Articles.SearchAll(ctx, SearchParams{Languages: []string{}}, nil)
 	_, checks["get"] = c.Articles.Get(ctx, "", nil)
@@ -454,7 +469,8 @@ func TestLocaleIndependent(t *testing.T) {
 		t.Setenv("LC_ALL", loc)
 		rel := 0.5
 		b, _ := SearchParams{MinRelevance: &rel, Limit: 10, Tickers: []string{"İ"}}.body()
-		if got := string(marshalBody(b)); got != `{"limit":10,"minRelevance":0.5,"tickers":["İ"]}` {
+		data, _ := marshalBody(b)
+		if got := string(data); got != `{"limit":10,"minRelevance":0.5,"tickers":["İ"]}` {
 			t.Errorf("%s: %s", loc, got)
 		}
 	}
@@ -542,7 +558,14 @@ func TestStreamCloseAndConcurrentStreams(t *testing.T) {
 	for _, sc := range conns {
 		waitFor(t, "socket closed", func() bool { return !sc.isOpen() })
 	}
-	waitFor(t, "goroutines to end", func() bool { closeIdle(); return goroutines() <= baseline })
+	deadline := time.Now().Add(5 * time.Second)
+	for closeIdle(); goroutines() > baseline; closeIdle() {
+		if time.Now().After(deadline) {
+			buf := make([]byte, 1<<20)
+			t.Fatalf("goroutines did not end:\n%s", buf[:runtime.Stack(buf, true)])
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 // R-WS-2: a close with 1008 is terminal.
@@ -589,6 +612,7 @@ func TestDial403WithoutBody(t *testing.T) {
 	}()
 	defer s.Close()
 	waitFor(t, "scheduled", func() bool { return delay.Load() != 0 })
+	waitFor(t, "reported", func() bool { return reported.Load() == 1 }) // hooks run on their own goroutine
 	if time.Duration(delay.Load()) < 60*time.Second || reported.Load() != 1 {
 		t.Errorf("delay = %v, reported = %d", time.Duration(delay.Load()), reported.Load())
 	}
@@ -616,7 +640,7 @@ func TestRawReconnectPassesFirstSeenAt(t *testing.T) {
 	clock.Advance(time.Duration(sched.Load()-1), nil)
 	select {
 	case r := <-recon:
-		if r.LastSeenAt == nil || *r.LastSeenAt != "2026-11-23T21:00:00.000Z" || r.Reason != ReconnectClosed || r.Connection != 2 {
+		if r.LastSeenAt == nil || *r.LastSeenAt != "2026-11-23T21:00:00.000Z" || r.Reason != ReconnectReasonClosed || r.Connection != 2 {
 			t.Errorf("reconnect = %+v", r)
 		}
 	case <-time.After(3 * time.Second):
@@ -642,7 +666,7 @@ func TestErrorBodyForms(t *testing.T) {
 		t.Errorf("text body = %+v", e)
 	}
 	e = parseAPIError(429, http.Header{"Retry-After": {"3"}}, []byte(`{"code":"RATE_LIMITED","detail":"Throttling Exception: Exceeded token limit of 1000 for the current period.","future":{"x":1}}`), "r")
-	if e.LimitType != RateLimitMonthly || e.RetryAfter != 3*time.Second || e.APIKind != APIKindRateLimited {
+	if e.LimitType != RateLimitTypeMonthly || e.RetryAfter != 3*time.Second || e.APIKind != APIKindRateLimited {
 		t.Errorf("429 = %+v", e)
 	}
 }

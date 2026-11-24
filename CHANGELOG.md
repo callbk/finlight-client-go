@@ -26,12 +26,15 @@ Contract kit: 3.0.0-rc.3.
 - Tolerant models: exact key matching, required keys only where the contract says so, `RawJSON()`,
   strict `...Time()` accessors, and `Field[T]` for the gated keys (absent, null, value) with
   `ContentPresent`, `SentimentPresent`, `CompaniesPresent` and `EventsPresent`.
-- Open vocabularies as named string types with constants and `...Values()` functions.
+- Open vocabularies as named string types with `<Type><Value>` constants (for example
+  `finlight.CompanyRoleAcquirer`, `finlight.ReconnectReasonRotation`) and `...Values()` functions.
 - `client.Stream` and `client.RawStream` return a `*finlight.Stream`; `Events()` is an
   `iter.Seq2[StreamEvent, error]`. Ping and pong watchdog, rotation before the 2 hour limit, the same
   subscribe after every reconnect, a duplicate filter, a `Takeover` option, typed terminal errors and the
-  hooks `OnAdmitted`, `OnReconnect`, `OnError` and `OnQuotaWait`. The API key goes out as a lowercase
-  `x-api-key` header.
+  hooks `OnAdmitted`, `OnReconnect`, `OnError` and `OnQuotaWait`. Hooks run in order on their own
+  goroutine, so a slow hook never delays pongs, and a hook may call `Close`. The reconnect backoff grows
+  until a connection delivers an article or a pong. The API key goes out as a lowercase `x-api-key`
+  header.
 - When the monthly WebSocket quota is used up (dial 403 "quota exceeded" or `connection.preempted` with
   reason `quota_exceeded`), the stream tries again every hour until the quota allows it, logging a warning
   and calling `OnQuotaWait` each time. On by default; `DisableQuotaReconnect` ends the stream with the
@@ -46,7 +49,8 @@ Contract kit: 3.0.0-rc.3.
 - Retries: up to 3 for 5xx, network errors and attempt timeouts; never for 400, 401, 403, 404 and a
   monthly 429. A monthly 429 fails at once, also inside `SearchAll`. A burst 429 waits exactly
   `Retry-After` (10 s without it) and retries once; on by default, `RetryOnBurst: BurstRetryOff` turns it
-  off. One `X-Request-Id` per call, kept on retries.
+  off. One `X-Request-Id` per call, kept on retries. net/http does not replay a GET on its own, and
+  redirects are not followed (a 3xx is an `*APIError`), so the key never reaches another host.
 - `User-Agent: finlight-client-go/2.0.0` and `x-client-version: 2.0.0` on every request and handshake;
   `finlight.Version` is the single source.
 - Conformance suite: every case of the shared API v3 contract kit runs as a Go subtest (`CASES.md`), with

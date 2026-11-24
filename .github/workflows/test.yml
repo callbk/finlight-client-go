@@ -57,10 +57,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+      # The gitleaks GitHub Action needs a paid license for organization
+      # repositories; the CLI does not. .gitleaks.toml allowlists the
+      # synthetic keys of the contract kit and the tests.
       - name: Secret scan
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          go install github.com/zricethezav/gitleaks/v8@v8.21.2
+          "$(go env GOPATH)/bin/gitleaks" git --redact --no-banner --verbose .
       - name: No AI attribution in commit messages
         run: |
           if git log --format=%B | grep -inE 'co-authored-by|generated (with|by)|\bclaude\b|anthropic'; then

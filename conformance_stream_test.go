@@ -93,7 +93,7 @@ func searchFailedSurfaces(t *testing.T, s *sessionState) {
 		s.conn.send(t, map[string]any{"event": "connection.error", "payloadVersion": 3, "data": map[string]any{"code": "SEARCH_FAILED", "message": "x"}})
 		waitFor(t, "scheduled reconnect", func() bool { return p.count(func() int { return len(p.scheduled) }) >= i })
 		sc := p.scheduled[i-1]
-		if sc.reason != ReconnectSearchFailed {
+		if sc.reason != ReconnectReasonSearchFailed {
 			t.Errorf("reason = %s", sc.reason)
 		}
 		p.advance(sc.at.Add(sc.delay).Sub(p.clock.Now()))
@@ -106,7 +106,7 @@ func searchFailedSurfaces(t *testing.T, s *sessionState) {
 		t.Errorf("surfaced error = %v", p.errs[0])
 	}
 	p.with(func() {
-		if len(p.reconnects) != 5 || p.reconnects[4].Reason != ReconnectSearchFailed || p.reconnects[4].Connection != 6 {
+		if len(p.reconnects) != 5 || p.reconnects[4].Reason != ReconnectReasonSearchFailed || p.reconnects[4].Connection != 6 {
 			t.Errorf("reconnects = %+v", p.reconnects)
 		}
 	})
@@ -126,11 +126,12 @@ func dedupeSurvivesRotation(t *testing.T, s *sessionState) {
 	waitFor(t, "old connection closed", func() bool { return !s.conn.isOpen() })
 	d.conn.send(t, article)
 	waitFor(t, "duplicate dropped", func() bool { return p.count(func() int { return len(p.duplicates) }) == 1 })
+	waitFor(t, "onReconnect", func() bool { return p.count(func() int { return len(p.reconnects) }) == 2 })
 	p.with(func() {
 		if len(p.items) != 1 {
 			t.Errorf("items = %d after the replay", len(p.items))
 		}
-		if len(p.reconnects) != 2 || p.reconnects[1].Reason != ReconnectRotation || p.reconnects[1].LastSeenAt == nil {
+		if len(p.reconnects) != 2 || p.reconnects[1].Reason != ReconnectReasonRotation || p.reconnects[1].LastSeenAt == nil {
 			t.Errorf("reconnects = %+v", p.reconnects)
 		}
 	})

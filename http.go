@@ -23,21 +23,41 @@ import (
 // for 5xx, network errors and attempt timeouts, one burst retry after
 // Retry-After, never a retry after the caller's cancellation.
 type transport struct {
-	cfg     Config
+	cfg     Config // APIKey cleared
+	key     secret
 	http    *http.Client
 	ownHTTP bool
 	log     *slog.Logger
 	newID   func() string
 }
 
-func newTransport(cfg Config) *transport {
-	t := &transport{cfg: cfg, http: cfg.HTTPClient, log: cfg.Logger, newID: newRequestID}
-	if t.http == nil {
+func newTransport(cfg Config, key secret) *transport {
+	t := &transport{cfg: cfg, key: key, log: cfg.Logger, newID: newRequestID}
+	if cfg.HTTPClient == nil {
 		t.http = &http.Client{}
 		t.ownHTTP = true
+	} else {
+		// A shallow copy: the caller's client stays as it is, its transport
+		// and timeouts are shared.
+		hc := *cfg.HTTPClient
+		t.http = &hc
 	}
+	// The API never redirects. Following a 3xx would send X-API-KEY to the
+	// redirect target (net/http strips only Authorization and Cookie), so the
+	// 3xx comes back as an *APIError instead.
+	t.http.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return t
 }
+
+// noReplayBody is the empty body of a GET. net/http sends no body for it (it
+// reads EOF before writing the request), but a request with a body and no
+// GetBody is not replayable: net/http does not silently send a metered GET a
+// second time when a reused keep-alive connection breaks after the request
+// was written (R-RETRY-1). The SDK's own retry rules decide instead.
+type noReplayBody struct{}
+
+func (noReplayBody) Read([]byte) (int, error) { return 0, io.EOF }
+func (noReplayBody) Close() error             { return nil }
 
 type apiRequest struct {
 	method    string
@@ -100,7 +120,7 @@ func (t *transport) do(ctx context.Context, req apiRequest) (*apiResponse, error
 		apiErr := parseAPIError(resp.status, resp.header, resp.body, req.requestID)
 		switch {
 		case resp.status == http.StatusTooManyRequests:
-			if apiErr.LimitType == RateLimitBurst && t.cfg.RetryOnBurst == BurstRetryOnce && !burstRetried {
+			if apiErr.LimitType == RateLimitTypeBurst && t.cfg.RetryOnBurst == BurstRetryOnce && !burstRetried {
 				burstRetried = true
 				wait := apiErr.RetryAfter
 				if wait <= 0 {
@@ -175,10 +195,13 @@ func (t *transport) attempt(ctx context.Context, req apiRequest) (*apiResponse, 
 	if err != nil {
 		return nil, &ValidationError{Message: "cannot build request: " + err.Error()}
 	}
+	if body == nil {
+		hr.Body, hr.GetBody = noReplayBody{}, nil
+	}
 	for k, vs := range req.header {
 		hr.Header[k] = vs
 	}
-	hr.Header.Set("X-API-KEY", t.cfg.APIKey)
+	hr.Header.Set("X-API-KEY", t.key.reveal())
 	hr.Header.Set("User-Agent", userAgent)
 	hr.Header.Set("x-client-version", Version)
 	hr.Header.Set("X-Request-Id", req.requestID)
@@ -288,11 +311,11 @@ func parseAPIError(status int, header http.Header, body []byte, sentRequestID st
 func classifyRateLimit(detail string) RateLimitType {
 	switch {
 	case strings.Contains(detail, "Exceeded token limit"):
-		return RateLimitMonthly
+		return RateLimitTypeMonthly
 	case strings.Contains(detail, "Exceeded rate limit"):
-		return RateLimitBurst
+		return RateLimitTypeBurst
 	}
-	return RateLimitUnknown
+	return RateLimitTypeUnknown
 }
 
 func parseRetryAfter(v string) time.Duration {

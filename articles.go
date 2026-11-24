@@ -20,7 +20,11 @@ func (s *ArticlesService) Search(ctx context.Context, params SearchParams) (*Art
 	if err != nil {
 		return nil, err
 	}
-	return s.c.searchPage(ctx, marshalBody(body))
+	data, err := marshalBody(body)
+	if err != nil {
+		return nil, err
+	}
+	return s.c.searchPage(ctx, data)
 }
 
 func (c *Client) searchPage(ctx context.Context, body []byte) (*ArticlePage, error) {
@@ -32,7 +36,7 @@ func (c *Client) searchPage(ctx context.Context, body []byte) (*ArticlePage, err
 	if err != nil {
 		return nil, err
 	}
-	elems, _, err := o.array("", "articles")
+	elems, err := o.envelope("articles")
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +198,12 @@ func (r *SearchAllResult) Pages() iter.Seq2[*ArticlePage, error] {
 			if cursor != nil {
 				body["cursor"] = *cursor
 			}
-			page, err := r.c.searchPage(r.ctx, marshalBody(body))
+			data, err := marshalBody(body)
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			page, err := r.c.searchPage(r.ctx, data)
 			if err != nil {
 				yield(nil, err)
 				return

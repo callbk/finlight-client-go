@@ -57,7 +57,7 @@ func (s *CompaniesService) list(ctx context.Context, q url.Values) (*CompanyList
 	if err != nil {
 		return nil, err
 	}
-	elems, _, err := o.array("", "companies")
+	elems, err := o.envelope("companies")
 	if err != nil {
 		return nil, err
 	}

@@ -20,7 +20,7 @@ func (s *SourcesService) List(ctx context.Context) (*SourceList, error) {
 	if err != nil {
 		return nil, err
 	}
-	elems, _, err := o.array("", "sources")
+	elems, err := o.envelope("sources")
 	if err != nil {
 		return nil, err
 	}

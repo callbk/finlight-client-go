@@ -565,17 +565,17 @@ func checkExpect(t *testing.T, st *sessionState, step, next map[string]any) {
 			t.Errorf("reason = %s, want %s", s.reason, r)
 		}
 		if step["hint"] == "takeover" {
-			found := false
-			p.with(func() {
-				for _, e := range p.errs {
-					if strings.Contains(e.Error(), "x-takeover") {
-						found = true
+			// Hooks run on their own goroutine: wait for the report.
+			waitFor(t, "the takeover hint", func() bool {
+				return p.count(func() int {
+					for _, e := range p.errs {
+						if strings.Contains(e.Error(), "x-takeover") {
+							return 1
+						}
 					}
-				}
+					return 0
+				}) == 1
 			})
-			if !found {
-				t.Error("no takeover hint reported")
-			}
 		}
 		if rep := obj(step["reported"]); rep != nil {
 			waitFor(t, "onQuotaWait", func() bool { return p.count(func() int { return len(p.quotaWaits) }) > c.quota })

@@ -180,6 +180,24 @@ func (o jsonObject) array(path, key string) (elems []json.RawMessage, present bo
 	return elems, true, nil
 }
 
+// envelope reads the named list of a list response. The key is always there
+// (contract section 6): a missing or null one is a *DecodeError, never an
+// empty result.
+func (o jsonObject) envelope(key string) ([]json.RawMessage, error) {
+	raw, ok := o[key]
+	if !ok {
+		return nil, decodeErr(key, nil, "required key is missing")
+	}
+	elems, _, err := o.array("", key)
+	if err != nil {
+		return nil, err
+	}
+	if elems == nil {
+		return nil, decodeErr(key, raw, "expected an array, got null")
+	}
+	return elems, nil
+}
+
 // stringList reads a string[] key; absent and null read as an empty list.
 func (o jsonObject) stringList(path, key string) ([]string, error) {
 	elems, _, err := o.array(path, key)

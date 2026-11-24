@@ -55,6 +55,11 @@ var _ = conformance("V-01", func(t *testing.T) {
 	check("WebhookEventName", toStrings(WebhookEventNameValues()), list("webhook", "events", "values"))
 	check("ProblemCode", toStrings(ProblemCodeValues()), list("problemCodes", "values"))
 	check("RateLimitType", toStrings(RateLimitTypeValues()), append(list("limitTypes", "values"), "unknown"))
+	// Not in vocab.json; the list is the one in sdk-style (stream section).
+	check("ReconnectReason", toStrings(ReconnectReasonValues()), []string{
+		"rotation", "watchdog", "closed", "handshake_failed", "search_failed",
+		"dial_failed", "dial_refused", "connection_limit", "rate_limited", "quota_exceeded",
+	})
 	if PayloadVersion != int(v["payloadVersion"].(float64)) {
 		t.Errorf("PayloadVersion = %d", PayloadVersion)
 	}

@@ -2,7 +2,6 @@ package finlight
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"unicode/utf8"
 )
@@ -50,7 +49,8 @@ func (p SearchParams) body() (map[string]any, error) {
 	if p.Languages != nil && len(p.Languages) == 0 {
 		return nil, validationErr("languages", "languages must not be empty")
 	}
-	if p.MinRelevance != nil && (*p.MinRelevance < 0 || *p.MinRelevance > 1) {
+	// Written as !(0 <= v <= 1) so that NaN fails too.
+	if p.MinRelevance != nil && !(*p.MinRelevance >= 0 && *p.MinRelevance <= 1) {
 		return nil, validationErr("minRelevance", "minRelevance must be between 0 and 1")
 	}
 	if err := checkInclude(p.Include); err != nil {
@@ -121,13 +121,14 @@ func checkInclude(include []IncludeBlock) error {
 }
 
 // marshalBody writes a request body; an empty body is {} (never null or []).
-func marshalBody(b map[string]any) []byte {
+// body() rejects every value JSON cannot hold, so an error here is a bug; it
+// still comes back as a *ValidationError instead of a panic.
+func marshalBody(b map[string]any) ([]byte, error) {
 	data, err := json.Marshal(b)
 	if err != nil {
-		// Only strings, bools, numbers and string slices go in; this cannot fail.
-		panic(fmt.Sprintf("finlight: marshal request body: %v", err))
+		return nil, &ValidationError{Message: "cannot encode the request body: " + err.Error()}
 	}
-	return data
+	return data, nil
 }
 
 // GetOptions are the options of Articles.Get and Articles.GetByLink.

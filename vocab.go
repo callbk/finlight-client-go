@@ -167,12 +167,12 @@ type StreamEventName string
 
 // Known stream event names.
 const (
-	StreamEventArticleCreated      StreamEventName = "article.created"
-	StreamEventArticleUpdated      StreamEventName = "article.updated"
-	StreamEventConnectionAdmitted  StreamEventName = "connection.admitted"
-	StreamEventConnectionPong      StreamEventName = "connection.pong"
-	StreamEventConnectionPreempted StreamEventName = "connection.preempted"
-	StreamEventConnectionError     StreamEventName = "connection.error"
+	StreamEventNameArticleCreated      StreamEventName = "article.created"
+	StreamEventNameArticleUpdated      StreamEventName = "article.updated"
+	StreamEventNameConnectionAdmitted  StreamEventName = "connection.admitted"
+	StreamEventNameConnectionPong      StreamEventName = "connection.pong"
+	StreamEventNameConnectionPreempted StreamEventName = "connection.preempted"
+	StreamEventNameConnectionError     StreamEventName = "connection.error"
 )
 
 // StreamEventNameValues returns every known stream event name.
@@ -182,14 +182,14 @@ func StreamEventNameValues() []StreamEventName {
 
 // StreamEventNameArticleEvents returns the known article event names.
 func StreamEventNameArticleEvents() []StreamEventName {
-	return []StreamEventName{StreamEventArticleCreated, StreamEventArticleUpdated}
+	return []StreamEventName{StreamEventNameArticleCreated, StreamEventNameArticleUpdated}
 }
 
 // StreamEventNameConnectionEvents returns the known connection event names.
 func StreamEventNameConnectionEvents() []StreamEventName {
 	return []StreamEventName{
-		StreamEventConnectionAdmitted, StreamEventConnectionPong,
-		StreamEventConnectionPreempted, StreamEventConnectionError,
+		StreamEventNameConnectionAdmitted, StreamEventNameConnectionPong,
+		StreamEventNameConnectionPreempted, StreamEventNameConnectionError,
 	}
 }
 
@@ -198,18 +198,18 @@ type ConnectionErrorCode string
 
 // Known connection.error codes.
 const (
-	ConnectionErrorPingOnDefaultRoute ConnectionErrorCode = "PING_ON_DEFAULT_ROUTE"
-	ConnectionErrorHandshakeFailed    ConnectionErrorCode = "HANDSHAKE_FAILED"
-	ConnectionErrorValidationFailed   ConnectionErrorCode = "VALIDATION_FAILED"
-	ConnectionErrorSearchFailed       ConnectionErrorCode = "SEARCH_FAILED"
-	ConnectionErrorInternalError      ConnectionErrorCode = "INTERNAL_ERROR"
+	ConnectionErrorCodePingOnDefaultRoute ConnectionErrorCode = "PING_ON_DEFAULT_ROUTE"
+	ConnectionErrorCodeHandshakeFailed    ConnectionErrorCode = "HANDSHAKE_FAILED"
+	ConnectionErrorCodeValidationFailed   ConnectionErrorCode = "VALIDATION_FAILED"
+	ConnectionErrorCodeSearchFailed       ConnectionErrorCode = "SEARCH_FAILED"
+	ConnectionErrorCodeInternalError      ConnectionErrorCode = "INTERNAL_ERROR"
 )
 
 // ConnectionErrorCodeValues returns the known connection.error codes.
 func ConnectionErrorCodeValues() []ConnectionErrorCode {
 	return []ConnectionErrorCode{
-		ConnectionErrorPingOnDefaultRoute, ConnectionErrorHandshakeFailed,
-		ConnectionErrorValidationFailed, ConnectionErrorSearchFailed, ConnectionErrorInternalError,
+		ConnectionErrorCodePingOnDefaultRoute, ConnectionErrorCodeHandshakeFailed,
+		ConnectionErrorCodeValidationFailed, ConnectionErrorCodeSearchFailed, ConnectionErrorCodeInternalError,
 	}
 }
 
@@ -232,13 +232,13 @@ type WebhookEventName string
 
 // Known webhook event names.
 const (
-	WebhookEventArticleCreated WebhookEventName = "article.created"
-	WebhookEventArticleUpdated WebhookEventName = "article.updated"
+	WebhookEventNameArticleCreated WebhookEventName = "article.created"
+	WebhookEventNameArticleUpdated WebhookEventName = "article.updated"
 )
 
 // WebhookEventNameValues returns the known webhook event names.
 func WebhookEventNameValues() []WebhookEventName {
-	return []WebhookEventName{WebhookEventArticleCreated, WebhookEventArticleUpdated}
+	return []WebhookEventName{WebhookEventNameArticleCreated, WebhookEventNameArticleUpdated}
 }
 
 // ProblemCode is the code member of an API error.
@@ -268,17 +268,17 @@ func ProblemCodeValues() []ProblemCode {
 // RateLimitType tells a monthly quota from a burst limit on a 429.
 type RateLimitType string
 
-// Known rate limit types. RateLimitUnknown is set by the SDK when the server
+// Known rate limit types. RateLimitTypeUnknown is set by the SDK when the server
 // sends neither a limitType nor a known detail text.
 const (
-	RateLimitMonthly RateLimitType = "monthly"
-	RateLimitBurst   RateLimitType = "burst"
-	RateLimitUnknown RateLimitType = "unknown"
+	RateLimitTypeMonthly RateLimitType = "monthly"
+	RateLimitTypeBurst   RateLimitType = "burst"
+	RateLimitTypeUnknown RateLimitType = "unknown"
 )
 
 // RateLimitTypeValues returns the known rate limit types, unknown included.
 func RateLimitTypeValues() []RateLimitType {
-	return []RateLimitType{RateLimitMonthly, RateLimitBurst, RateLimitUnknown}
+	return []RateLimitType{RateLimitTypeMonthly, RateLimitTypeBurst, RateLimitTypeUnknown}
 }
 
 // StreamEventKind is the kind of a stream item.
@@ -296,14 +296,24 @@ type ReconnectReason string
 
 // Known reconnect reasons.
 const (
-	ReconnectRotation        ReconnectReason = "rotation"
-	ReconnectWatchdog        ReconnectReason = "watchdog"
-	ReconnectClosed          ReconnectReason = "closed"
-	ReconnectHandshakeFailed ReconnectReason = "handshake_failed"
-	ReconnectSearchFailed    ReconnectReason = "search_failed"
-	ReconnectDialFailed      ReconnectReason = "dial_failed"
-	ReconnectDialRefused     ReconnectReason = "dial_refused"
-	ReconnectConnectionLimit ReconnectReason = "connection_limit"
-	ReconnectRateLimited     ReconnectReason = "rate_limited"
-	ReconnectQuotaExceeded   ReconnectReason = "quota_exceeded"
+	ReconnectReasonRotation        ReconnectReason = "rotation"
+	ReconnectReasonWatchdog        ReconnectReason = "watchdog"
+	ReconnectReasonClosed          ReconnectReason = "closed"
+	ReconnectReasonHandshakeFailed ReconnectReason = "handshake_failed"
+	ReconnectReasonSearchFailed    ReconnectReason = "search_failed"
+	ReconnectReasonDialFailed      ReconnectReason = "dial_failed"
+	ReconnectReasonDialRefused     ReconnectReason = "dial_refused"
+	ReconnectReasonConnectionLimit ReconnectReason = "connection_limit"
+	ReconnectReasonRateLimited     ReconnectReason = "rate_limited"
+	ReconnectReasonQuotaExceeded   ReconnectReason = "quota_exceeded"
 )
+
+// ReconnectReasonValues returns the known reconnect reasons.
+func ReconnectReasonValues() []ReconnectReason {
+	return []ReconnectReason{
+		ReconnectReasonRotation, ReconnectReasonWatchdog, ReconnectReasonClosed,
+		ReconnectReasonHandshakeFailed, ReconnectReasonSearchFailed, ReconnectReasonDialFailed,
+		ReconnectReasonDialRefused, ReconnectReasonConnectionLimit, ReconnectReasonRateLimited,
+		ReconnectReasonQuotaExceeded,
+	}
+}

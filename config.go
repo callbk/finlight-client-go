@@ -99,7 +99,8 @@ type Config struct {
 	// Clock replaces the system clock (for tests). Default: the system clock.
 	Clock Clock
 	// HTTPClient is used for REST and for the WebSocket handshake. The SDK
-	// never closes it. Its own timeouts apply.
+	// never closes it. Its own timeouts apply. REST uses a shallow copy with
+	// redirects turned off, so that the key never goes to another host.
 	HTTPClient *http.Client
 }
 
@@ -110,6 +111,10 @@ func (c Config) String() string {
 
 // GoString hides the API key in %#v output.
 func (c Config) GoString() string { return c.String() }
+
+// Format prints String for every verb (also %d or %x), so that no verb
+// reaches the APIKey field.
+func (c Config) Format(f fmt.State, verb rune) { formatRedacted(f, verb, c.String()) }
 
 func redact(s string) string {
 	if s == "" {

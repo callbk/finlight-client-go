@@ -186,10 +186,12 @@ for ev, err := range s.Events() {
 - `client.RawStream(ctx, finlight.RawStreamParams{...}, opts)`는 보강 전의 기사를 전달합니다. include가 없고
   content, sentiment, companies, events도 없습니다.
 - `StreamOptions`의 훅: `OnAdmitted(AdmittedInfo)`, 첫 번째를 제외한 새 연결마다 `OnReconnect(ReconnectInfo)`,
-  스트림을 끝내지 않는 문제에 대한 `OnError(finlight.Error)`, `OnQuotaWait(QuotaWaitInfo)`. 훅 안의 panic은
-  복구되어 로그에 남으며 스트림을 멈추지 않습니다.
+  스트림을 끝내지 않는 문제에 대한 `OnError(finlight.Error)`, `OnQuotaWait(QuotaWaitInfo)`. 훅은 전용
+  goroutine에서 순서대로 하나씩 실행되므로 느린 훅이 ping과 pong을 늦추지 않습니다. 루프와 공유하는 상태에는
+  잠금이 필요합니다. 훅 안에서 `s.Close()`를 호출해도 됩니다. 훅 안의 panic은 복구되어 로그에 남으며 스트림을 멈추지 않습니다.
 - 스트림은 25초마다 ping을 보내고, 60초 동안 pong이 없으면 재연결하며, 115분 후 새 연결을 엽니다. 재연결할
-  때마다 같은 subscribe를 보내고 중복을 버립니다.
+  때마다 같은 subscribe를 보내고 중복을 버립니다. 재연결 전 대기 시간은 연결이 기사나 pong을 전달할 때까지
+  늘어납니다(1초에서 30초).
 - 자동으로 누락분을 채우지 않습니다. `ReconnectInfo.LastSeenAt`은 마지막으로 본 `availableAt`
   (raw: `firstSeenAt`)입니다. `Articles.SearchAll`에 `From: *info.LastSeenAt, OrderBy: finlight.OrderByAvailableAt`
   (raw: `OrderByFirstSeenAt`)을 지정해 빈 구간을 채우세요.
@@ -283,7 +285,8 @@ SDK의 모든 오류는 `Kind()`가 있는 `finlight.Error`를 구현합니다: 
 기다리는 것은 스트림뿐입니다(위 참고). 버스트 429는 정확히 `Retry-After`초(헤더가 없으면 10초)를 기다린 뒤 한 번
 더 시도합니다. 기본으로 켜져 있고 `MaxRetries`에 포함되지 않으며 `RetryOnBurst: finlight.BurstRetryOff`로 끌 수
 있습니다. 호출마다 고유한 `X-Request-Id`를 보내고 재시도에서도 같은 값을 씁니다. context를 취소하면 대기 중에도
-즉시 멈추며, 오류는 `ctx.Err()`이고 재시도하지 않습니다.
+즉시 멈추며, 오류는 `ctx.Err()`이고 재시도하지 않습니다. SDK 아래에 숨은 재시도는 없습니다. net/http가 GET을
+스스로 다시 보내지 않고, 리디렉션도 따르지 않습니다(3xx는 `*APIError`로 돌아옵니다).
 
 ## 설정
 
@@ -329,7 +332,8 @@ client, err := finlight.NewClient(finlight.Config{
 | `HTTPClient` | 자체 클라이언트 | REST와 WebSocket 핸드셰이크에 쓰는 `*http.Client` |
 
 직접 만든 `HTTPClient`를 쓰면 그 타임아웃, 프록시, transport가 적용됩니다(`Timeout`은 추가되지 않음).
-시도마다 쿼터가 들기 때문에 재시도하는 transport는 추가하지 마세요. SDK는 그것을 닫지 않습니다.
+시도마다 쿼터가 들기 때문에 재시도하는 transport는 추가하지 마세요. SDK는 그것을 닫지 않습니다. 키가 다른
+호스트로 가지 않도록 SDK는 리디렉션을 끈 복사본을 씁니다.
 
 ## 로깅
 
@@ -369,7 +373,7 @@ client, err := finlight.NewClient(finlight.Config{APIKey: key, Logger: logger})
 | `Sentiment`, `Confidence` | `Sentiment.Value().Label`, `Sentiment.Value().Confidence` |
 | `client.Websocket.Stream(ctx, ...)` | `client.Stream(ctx, ...)`와 `range s.Events()` |
 | raw WebSocket 클라이언트 | `client.RawStream(ctx, ...)` |
-| Webhook `IsUpdate` | `ev.Event == finlight.WebhookEventArticleUpdated` |
+| Webhook `IsUpdate` | `ev.Event == finlight.WebhookEventNameArticleUpdated` |
 | Webhook 본문 | `ev.Data`, 그리고 중복 제거용 `ev.EventID` |
 
 Webhook을 v3로 전환하는 네 단계:

@@ -70,3 +70,19 @@ func TestWebhookEndpoint(t *testing.T) {
 		t.Errorf("bad signature: %d, want 400", code)
 	}
 }
+
+// A full work queue answers 503 and does not mark the event as seen, so the
+// retry is taken.
+func TestWebhookEndpointQueueFull(t *testing.T) {
+	body, secret := kitBody(t, "fixtures/webhook/created-enriched.json")
+	work := make(chan *finlight.WebhookEvent, 1)
+	work <- &finlight.WebhookEvent{}
+	h := newHandler(secret, work)
+	if code := post(t, h, body, secret); code != http.StatusServiceUnavailable {
+		t.Fatalf("full queue: %d, want 503", code)
+	}
+	<-work
+	if code := post(t, h, body, secret); code != 200 || len(work) != 1 {
+		t.Errorf("retry: %d, queued %d", code, len(work))
+	}
+}

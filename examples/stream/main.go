@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 
 	finlight "github.com/callbk/finlight-client-go/v2"
 )
@@ -31,7 +32,10 @@ func configFromEnv() finlight.Config {
 	}
 }
 
-func run(ctx context.Context, w io.Writer, cfg finlight.Config, max int) error {
+func run(ctx context.Context, out io.Writer, cfg finlight.Config, max int) error {
+	// Hooks run on their own goroutine, next to the loop below: share the
+	// writer through a lock.
+	w := &lockedWriter{w: out}
 	client, err := finlight.NewClient(cfg)
 	if err != nil {
 		return err
@@ -79,4 +83,15 @@ func run(ctx context.Context, w io.Writer, cfg finlight.Config, max int) error {
 		}
 	}
 	return nil
+}
+
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
 }

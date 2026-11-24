@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -60,8 +61,13 @@ type QuotaWaitInfo struct {
 	Attempt       int // from 1
 }
 
-// StreamOptions are the options of Client.Stream and Client.RawStream. Hooks
-// run on the stream's goroutine; a panic in a hook is recovered and logged.
+// StreamOptions are the options of Client.Stream and Client.RawStream.
+//
+// Hooks run one at a time, in order, on a goroutine of their own, never on the
+// goroutine that reads the socket: a slow hook does not delay pings, pongs or
+// the watchdog. Code shared between hooks and the Events loop needs its own
+// locking. A panic in a hook is recovered and logged. A hook may call
+// Stream.Close.
 type StreamOptions struct {
 	// Takeover sends x-takeover: true, which replaces the stalest existing
 	// connection of the key when the connection limit is reached. Default off.
@@ -98,6 +104,7 @@ type Stream struct {
 	cancel      context.CancelFunc
 	done        chan struct{}
 	q           *eventQueue
+	hq          *hookQueue
 
 	hooks streamTestHooks
 }
@@ -135,6 +142,7 @@ func (c *Client) RawStream(ctx context.Context, params RawStreamParams, opts *St
 
 func (c *Client) newStream(ctx context.Context, raw bool, sub map[string]any, opts *StreamOptions) *Stream {
 	s := &Stream{c: c, raw: raw, sub: sub, ctx: ctx, done: make(chan struct{}), q: newEventQueue()}
+	s.hq = newHookQueue(s.warn)
 	s.url = c.cfg.WSSURL
 	if raw {
 		s.url += "/raw"
@@ -168,6 +176,7 @@ func (s *Stream) Events() iter.Seq2[StreamEvent, error] {
 		ctx, cancel := context.WithCancel(s.ctx)
 		s.cancel = cancel
 		s.mu.Unlock()
+		s.hq.start()
 		go s.run(ctx)
 		defer s.Close()
 		for {
@@ -187,13 +196,18 @@ func (s *Stream) Events() iter.Seq2[StreamEvent, error] {
 }
 
 // Close stops the stream: the socket is closed with 1000 and every timer and
-// goroutine ends before Close returns. Safe to call more than once.
+// goroutine ends before Close returns. Hooks queued before Close still run
+// and Close waits for them, except when a hook is running at that moment (for
+// example when Close is called from inside a hook): then Close does not wait
+// for the hooks, which end on their own right after. No hook is queued after
+// Close. Safe to call more than once.
 func (s *Stream) Close() error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
 		if s.started {
 			<-s.waitDone()
+			s.hq.wait()
 		}
 		return nil
 	}
@@ -207,6 +221,7 @@ func (s *Stream) Close() error {
 	}
 	if started && cancel != nil {
 		<-s.done
+		s.hq.wait()
 	}
 	s.q.finish(nil)
 	return nil
@@ -256,6 +271,10 @@ type outcome struct {
 	err      Error
 	next     *websocket.Conn // rotation: the next connection, opened and subscribed
 	admitted bool
+	// healthy: the connection delivered an article or a pong. Only then does
+	// the reconnect backoff start over; connection.admitted comes before the
+	// subscribe is validated and searched, so it proves nothing.
+	healthy bool
 }
 
 func (s *Stream) warn(msg string, args ...any)  { s.c.cfg.Logger.Warn("finlight: "+msg, args...) }
@@ -263,6 +282,7 @@ func (s *Stream) debug(msg string, args ...any) { s.c.cfg.Logger.Debug("finlight
 
 func (s *Stream) run(ctx context.Context) {
 	defer close(s.done)
+	defer s.hq.finish()
 	cfg := s.c.cfg
 	dd := newDedupe(cfg.DedupeCacheSize)
 	var (
@@ -288,7 +308,7 @@ func (s *Stream) run(ctx context.Context) {
 				return false
 			}
 			quotaAttempt++
-			delay, reason = cfg.QuotaReconnectInterval, ReconnectQuotaExceeded
+			delay, reason = cfg.QuotaReconnectInterval, ReconnectReasonQuotaExceeded
 			s.quotaWait(o.err, delay, quotaAttempt)
 			return true
 		}
@@ -335,15 +355,15 @@ func (s *Stream) run(ctx context.Context) {
 		s.mu.Unlock()
 		if n > 1 {
 			info := ReconnectInfo{LastSeenAt: last, Reason: reason, Connection: n}
-			s.hook(func() {
-				if s.opts.OnReconnect != nil {
-					s.opts.OnReconnect(info)
-				}
-			})
+			if fn := s.opts.OnReconnect; fn != nil {
+				s.hq.push(func() { fn(info) })
+			}
 		}
 		o := s.session(ctx, conn, subscribed, dd, &searchFails)
-		if o.admitted {
+		if o.healthy {
 			backoffN = 0
+		}
+		if o.admitted {
 			quotaAttempt = 0
 		}
 		if !next(o) {
@@ -375,23 +395,19 @@ func (s *Stream) end(err Error) {
 func (s *Stream) quotaWait(err Error, next time.Duration, attempt int) {
 	s.warn("WebSocket quota used up; waiting for the next attempt", "nextAttemptIn", next, "attempt", attempt)
 	info := QuotaWaitInfo{Error: err, NextAttemptIn: next, Attempt: attempt}
-	s.hook(func() {
-		if s.opts.OnQuotaWait != nil {
-			s.opts.OnQuotaWait(info)
-		}
-	})
+	if fn := s.opts.OnQuotaWait; fn != nil {
+		s.hq.push(func() { fn(info) })
+	}
 }
 
 func (s *Stream) reportError(err Error) {
-	s.hook(func() {
-		if s.opts.OnError != nil {
-			s.opts.OnError(err)
-		}
-	})
+	if fn := s.opts.OnError; fn != nil {
+		s.hq.push(func() { fn(err) })
+	}
 }
 
-// hook runs user (or test) code and recovers a panic so that it never ends
-// the stream.
+// hook runs test code inline and recovers a panic so that it never ends the
+// stream. User hooks go through s.hq instead.
 func (s *Stream) hook(fn func()) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -406,7 +422,7 @@ func (s *Stream) dial(ctx context.Context) (*websocket.Conn, outcome) {
 	// The gateway looks the key up case-sensitively: assign the lowercase names
 	// directly. Header.Set would canonicalize them to X-Api-Key.
 	header := http.Header{}
-	header["x-api-key"] = []string{cfg.APIKey}
+	header["x-api-key"] = []string{s.c.key.reveal()}
 	header["x-client-version"] = []string{Version}
 	header["User-Agent"] = []string{userAgent}
 	if s.opts.Takeover {
@@ -427,7 +443,7 @@ func (s *Stream) dial(ctx context.Context) (*websocket.Conn, outcome) {
 		nerr := &NetworkError{Message: "stream dial failed", Err: err}
 		s.warn("stream dial failed", "error", err.Error())
 		s.reportError(nerr)
-		return nil, outcome{action: actReconnect, reason: ReconnectDialFailed, backoff: true}
+		return nil, outcome{action: actReconnect, reason: ReconnectReasonDialFailed, backoff: true}
 	}
 	var body []byte
 	if resp.Body != nil {
@@ -476,19 +492,19 @@ func (s *Stream) classifyDial(status int, body []byte) outcome {
 		return outcome{action: actQuota, err: e}
 	case status == 403 && strings.HasPrefix(msg, "Too many concurrent connections"):
 		s.reportError(e) // carries the x-takeover hint when the server gives one
-		return outcome{action: actReconnect, reason: ReconnectConnectionLimit, delay: s.c.cfg.LongBackoff}
+		return outcome{action: actReconnect, reason: ReconnectReasonConnectionLimit, delay: s.c.cfg.LongBackoff}
 	case status == 403:
 		s.reportError(e)
-		return outcome{action: actReconnect, reason: ReconnectDialRefused, delay: s.c.cfg.LongBackoff}
+		return outcome{action: actReconnect, reason: ReconnectReasonDialRefused, delay: s.c.cfg.LongBackoff}
 	case status == 429:
 		s.reportError(e)
-		return outcome{action: actReconnect, reason: ReconnectRateLimited, delay: s.c.cfg.LongBackoff}
+		return outcome{action: actReconnect, reason: ReconnectReasonRateLimited, delay: s.c.cfg.LongBackoff}
 	case status >= 500:
 		s.reportError(e)
-		return outcome{action: actReconnect, reason: ReconnectDialFailed, backoff: true}
+		return outcome{action: actReconnect, reason: ReconnectReasonDialFailed, backoff: true}
 	}
 	s.reportError(e)
-	return outcome{action: actReconnect, reason: ReconnectDialRefused, backoff: true}
+	return outcome{action: actReconnect, reason: ReconnectReasonDialRefused, backoff: true}
 }
 
 type readResult struct {
@@ -583,16 +599,16 @@ func (s *Stream) session(ctx context.Context, conn *websocket.Conn, subscribed b
 			if ctx.Err() != nil {
 				return outcome{action: actStop}
 			}
-			return outcome{action: actReconnect, reason: ReconnectClosed, backoff: true}
+			return outcome{action: actReconnect, reason: ReconnectReasonClosed, backoff: true}
 		}
 	}
 
-	admitted := false
+	admitted, healthy := false, false
 	for {
 		select {
 		case <-ctx.Done():
 			closeConn(websocket.StatusNormalClosure)
-			return outcome{action: actStop, admitted: admitted}
+			return outcome{action: actStop, admitted: admitted, healthy: healthy}
 		case <-ping.C():
 			msg := fmt.Sprintf(`{"action":"ping","t":%d}`, clock.Now().UnixMilli())
 			if err := writeText(conn, []byte(msg)); err == nil {
@@ -605,7 +621,7 @@ func (s *Stream) session(ctx context.Context, conn *websocket.Conn, subscribed b
 		case <-watchdog.C():
 			s.warn("no pong within the watchdog timeout; reconnecting", "timeout", cfg.WatchdogTimeout)
 			closeConn(websocket.StatusGoingAway)
-			return outcome{action: actReconnect, reason: ReconnectWatchdog, admitted: admitted}
+			return outcome{action: actReconnect, reason: ReconnectReasonWatchdog, admitted: admitted, healthy: healthy}
 		case <-rotation.C():
 			// Make before break: open and subscribe the next connection, then
 			// close this one.
@@ -613,24 +629,24 @@ func (s *Stream) session(ctx context.Context, conn *websocket.Conn, subscribed b
 			nextConn, o := s.dial(ctx)
 			if nextConn == nil {
 				closeConn(websocket.StatusNormalClosure)
-				o.admitted = admitted
+				o.admitted, o.healthy = admitted, healthy
 				if o.action == actReconnect {
-					o.reason = ReconnectRotation
+					o.reason = ReconnectReasonRotation
 				}
 				return o
 			}
 			if err := writeText(nextConn, s.subscribeFrame()); err != nil {
 				_ = nextConn.CloseNow()
 				closeConn(websocket.StatusNormalClosure)
-				return outcome{action: actReconnect, reason: ReconnectRotation, admitted: admitted}
+				return outcome{action: actReconnect, reason: ReconnectReasonRotation, admitted: admitted, healthy: healthy}
 			}
 			closeConn(websocket.StatusNormalClosure)
-			return outcome{action: actReconnect, reason: ReconnectRotation, next: nextConn, admitted: admitted}
+			return outcome{action: actReconnect, reason: ReconnectReasonRotation, next: nextConn, admitted: admitted, healthy: healthy}
 		case m := <-msgs:
 			if m.err != nil {
 				closeConn(websocket.StatusGoingAway)
 				if ctx.Err() != nil {
-					return outcome{action: actStop, admitted: admitted}
+					return outcome{action: actStop, admitted: admitted, healthy: healthy}
 				}
 				if websocket.CloseStatus(m.err) == websocket.StatusPolicyViolation {
 					return outcome{action: actTerminal, admitted: admitted, err: &APIError{
@@ -640,9 +656,9 @@ func (s *Stream) session(ctx context.Context, conn *websocket.Conn, subscribed b
 					}}
 				}
 				s.warn("stream connection closed; reconnecting", "error", m.err.Error())
-				return outcome{action: actReconnect, reason: ReconnectClosed, backoff: true, admitted: admitted}
+				return outcome{action: actReconnect, reason: ReconnectReasonClosed, backoff: true, admitted: admitted, healthy: healthy}
 			}
-			res, done := s.handleFrame(m.data, dd, searchFails, &admitted, &watchdog)
+			res, done := s.handleFrame(m.data, dd, searchFails, &admitted, &healthy, &watchdog)
 			s.hook(func() {
 				if s.hooks.onFrame != nil {
 					s.hooks.onFrame()
@@ -650,7 +666,7 @@ func (s *Stream) session(ctx context.Context, conn *websocket.Conn, subscribed b
 			})
 			if done {
 				closeConn(websocket.StatusNormalClosure)
-				res.admitted = admitted
+				res.admitted, res.healthy = admitted, healthy
 				return res
 			}
 		}
@@ -659,12 +675,13 @@ func (s *Stream) session(ctx context.Context, conn *websocket.Conn, subscribed b
 
 // handleFrame processes one frame. Control frames are handled here, before any
 // user code runs; articles go to the queue. done=true ends the connection.
-func (s *Stream) handleFrame(data []byte, dd *dedupe, searchFails *int, admitted *bool, watchdog *Timer) (outcome, bool) {
+func (s *Stream) handleFrame(data []byte, dd *dedupe, searchFails *int, admitted, healthy *bool, watchdog *Timer) (outcome, bool) {
 	cfg := s.c.cfg
 	f := decodeFrame(data)
 	switch f.kind {
 	case frameArticle:
 		*searchFails = 0
+		*healthy = true
 		key := dedupeKey(f.event, f.article.ID, f.dataRaw)
 		if dd.seen(key) {
 			id := f.article.ID
@@ -677,7 +694,7 @@ func (s *Stream) handleFrame(data []byte, dd *dedupe, searchFails *int, admitted
 			return outcome{}, false
 		}
 		kind := StreamEventKindCreated
-		if f.event == StreamEventArticleUpdated {
+		if f.event == StreamEventNameArticleUpdated {
 			kind = StreamEventKindUpdated
 		}
 		seen := f.article.FirstSeenAt
@@ -694,12 +711,11 @@ func (s *Stream) handleFrame(data []byte, dd *dedupe, searchFails *int, admitted
 	case frameAdmitted:
 		*admitted = true
 		info := f.admitted
-		s.hook(func() {
-			if s.opts.OnAdmitted != nil {
-				s.opts.OnAdmitted(info)
-			}
-		})
+		if fn := s.opts.OnAdmitted; fn != nil {
+			s.hq.push(func() { fn(info) })
+		}
 	case framePong:
+		*healthy = true
 		(*watchdog).Stop()
 		*watchdog = cfg.Clock.NewTimer(cfg.WatchdogTimeout)
 		s.hook(func() {
@@ -717,7 +733,7 @@ func (s *Stream) handleFrame(data []byte, dd *dedupe, searchFails *int, admitted
 		}
 		s.warn("connection preempted for an unknown reason; reconnecting", "reason", string(p.Reason))
 		s.reportError(p)
-		return outcome{action: actReconnect, reason: ReconnectClosed, backoff: true}, true
+		return outcome{action: actReconnect, reason: ReconnectReasonClosed, backoff: true}, true
 	case frameError:
 		e := &APIError{
 			Code:    ProblemCode(f.errCode),
@@ -728,19 +744,19 @@ func (s *Stream) handleFrame(data []byte, dd *dedupe, searchFails *int, admitted
 			rawJSON: f.raw,
 		}
 		switch f.errCode {
-		case ConnectionErrorValidationFailed:
+		case ConnectionErrorCodeValidationFailed:
 			e.APIKind = APIKindValidationFailed
 			return outcome{action: actTerminal, err: e}, true
-		case ConnectionErrorHandshakeFailed:
+		case ConnectionErrorCodeHandshakeFailed:
 			s.warn("stream handshake failed; reconnecting")
-			return outcome{action: actReconnect, reason: ReconnectHandshakeFailed, backoff: true}, true
-		case ConnectionErrorSearchFailed:
+			return outcome{action: actReconnect, reason: ReconnectReasonHandshakeFailed, backoff: true}, true
+		case ConnectionErrorCodeSearchFailed:
 			*searchFails++
 			s.warn("stream search failed; reconnecting", "consecutive", *searchFails)
 			if *searchFails >= cfg.SearchFailedThreshold {
 				s.reportError(e)
 			}
-			return outcome{action: actReconnect, reason: ReconnectSearchFailed, backoff: true}, true
+			return outcome{action: actReconnect, reason: ReconnectReasonSearchFailed, backoff: true}, true
 		}
 		s.warn("stream reported an error", "code", string(f.errCode), "message", f.errMsg)
 		s.reportError(e)
@@ -856,4 +872,111 @@ func (q *eventQueue) pop() (queueItem, bool) {
 		}
 		<-q.notify
 	}
+}
+
+// ---- hooks ----
+
+// maxPendingHooks bounds the hooks waiting behind a slow one. Further hooks
+// are dropped with a warning instead of growing without limit.
+const maxPendingHooks = 256
+
+// hookQueue runs the user hooks of one stream one at a time, in order, on a
+// goroutine of their own. The connection goroutine only queues them, so a
+// slow hook never delays pongs or the watchdog, and a hook can call Close
+// without waiting for itself.
+type hookQueue struct {
+	warn func(msg string, args ...any)
+
+	mu       sync.Mutex
+	fns      []func()
+	finished bool // no more hooks come; run the queued ones, then stop
+	started  bool
+	notify   chan struct{}
+	done     chan struct{}
+	running  atomic.Bool // a hook is running right now
+}
+
+func newHookQueue(warn func(msg string, args ...any)) *hookQueue {
+	return &hookQueue{warn: warn, notify: make(chan struct{}, 1), done: make(chan struct{})}
+}
+
+func (h *hookQueue) signal() {
+	select {
+	case h.notify <- struct{}{}:
+	default:
+	}
+}
+
+func (h *hookQueue) push(fn func()) {
+	h.mu.Lock()
+	switch {
+	case h.finished:
+	case len(h.fns) >= maxPendingHooks:
+		h.mu.Unlock()
+		h.warn("a stream hook is too slow; dropping a hook call", "pending", maxPendingHooks)
+		return
+	default:
+		h.fns = append(h.fns, fn)
+	}
+	h.mu.Unlock()
+	h.signal()
+}
+
+// finish says that no more hooks come. Queued hooks still run.
+func (h *hookQueue) finish() {
+	h.mu.Lock()
+	h.finished = true
+	h.mu.Unlock()
+	h.signal()
+}
+
+// wait blocks until the hook goroutine has ended, unless a hook is running
+// right now: that hook may be the caller (Close from inside a hook), and
+// waiting for it would never end.
+func (h *hookQueue) wait() {
+	h.mu.Lock()
+	started := h.started
+	h.mu.Unlock()
+	if !started || h.running.Load() {
+		return
+	}
+	<-h.done
+}
+
+func (h *hookQueue) start() {
+	h.mu.Lock()
+	h.started = true
+	h.mu.Unlock()
+	go h.run()
+}
+
+func (h *hookQueue) run() {
+	defer close(h.done)
+	for {
+		h.mu.Lock()
+		if h.finished && len(h.fns) == 0 {
+			h.mu.Unlock()
+			return
+		}
+		if len(h.fns) == 0 {
+			h.mu.Unlock()
+			<-h.notify
+			continue
+		}
+		fn := h.fns[0]
+		h.fns = h.fns[1:]
+		h.running.Store(true)
+		h.mu.Unlock()
+		h.call(fn)
+		h.running.Store(false)
+	}
+}
+
+func (h *hookQueue) call(fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			h.warn("a stream hook panicked", "panic", fmt.Sprint(r))
+		}
+	}()
+	fn()
 }

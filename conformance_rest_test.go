@@ -759,7 +759,7 @@ func runErrorCase(t *testing.T, file string) {
 			t.Errorf("local check: %v", err)
 		}
 	case "E-18":
-		if ae.LimitType != RateLimitMonthly || ae.RetryAfter != 0 {
+		if ae.LimitType != RateLimitTypeMonthly || ae.RetryAfter != 0 {
 			t.Errorf("limitType %s retryAfter %v", ae.LimitType, ae.RetryAfter)
 		}
 		// searchAll stops with the error at once, never waits.
@@ -770,7 +770,7 @@ func runErrorCase(t *testing.T, file string) {
 		n := 0
 		for _, err := range res.All() {
 			n++
-			if !errors.As(err, &ae) || ae.LimitType != RateLimitMonthly {
+			if !errors.As(err, &ae) || ae.LimitType != RateLimitTypeMonthly {
 				t.Errorf("searchAll err = %v", err)
 			}
 		}
@@ -778,7 +778,7 @@ func runErrorCase(t *testing.T, file string) {
 			t.Errorf("searchAll retried or waited: %d requests, waits %v", len(m2.reqs()), clock2.sleeps())
 		}
 	case "E-19":
-		if ae.LimitType != RateLimitBurst {
+		if ae.LimitType != RateLimitTypeBurst {
 			t.Errorf("limitType = %s", ae.LimitType)
 		}
 		// Off: thrown at once.

@@ -69,7 +69,7 @@ func decodeFrame(text []byte) frame {
 
 func decodeV3(f *frame, o jsonObject) {
 	switch f.event {
-	case StreamEventArticleCreated, StreamEventArticleUpdated:
+	case StreamEventNameArticleCreated, StreamEventNameArticleUpdated:
 		a, err := decodeArticle(f.dataRaw, "data")
 		if err != nil {
 			f.kind = frameIgnored
@@ -79,21 +79,21 @@ func decodeV3(f *frame, o jsonObject) {
 		}
 		f.kind = frameArticle
 		f.article = a
-	case StreamEventConnectionAdmitted:
+	case StreamEventNameConnectionAdmitted:
 		f.kind = frameAdmitted
 		if d, err := parseObject(f.dataRaw, "data"); err == nil {
 			f.admitted = admittedFrom(d)
 		}
-	case StreamEventConnectionPong:
+	case StreamEventNameConnectionPong:
 		f.kind = framePong
-	case StreamEventConnectionPreempted:
+	case StreamEventNameConnectionPreempted:
 		f.kind = framePreempted
 		d, err := parseObject(f.dataRaw, "data")
 		if err != nil {
 			d = jsonObject{}
 		}
 		f.preempted = preemptedFrom(d)
-	case StreamEventConnectionError:
+	case StreamEventNameConnectionError:
 		f.kind = frameError
 		d, err := parseObject(f.dataRaw, "data")
 		if err != nil {
@@ -112,18 +112,18 @@ func decodeV2Control(f *frame, o jsonObject, action string) {
 	switch action {
 	case "admit":
 		f.kind = frameAdmitted
-		f.event = StreamEventConnectionAdmitted
+		f.event = StreamEventNameConnectionAdmitted
 		f.admitted = admittedFrom(o)
 	case "pong":
 		f.kind = framePong
-		f.event = StreamEventConnectionPong
+		f.event = StreamEventNameConnectionPong
 	case "preempted":
 		f.kind = framePreempted
-		f.event = StreamEventConnectionPreempted
+		f.event = StreamEventNameConnectionPreempted
 		f.preempted = preemptedFrom(o)
 	case "error":
 		f.kind = frameError
-		f.event = StreamEventConnectionError
+		f.event = StreamEventNameConnectionError
 		f.errMsg = v2ErrorText(o)
 	default:
 		// Includes the v2 article frame: never delivered as an article.

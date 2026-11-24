@@ -28,7 +28,8 @@ func main() {
 }
 
 // newHandler answers within 5 s: 2xx for accepted, duplicate and old-format
-// deliveries, 400 for a failed verification. Never 410: it disables the webhook.
+// deliveries, 400 for a failed verification, 503 when the work queue is full
+// (finlight retries the same eventId later). Never 410: it disables the webhook.
 func newHandler(secret string, work chan<- *finlight.WebhookEvent) http.Handler {
 	var seen sync.Map // eventId -> struct{}; use a shared store in production
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -59,11 +60,16 @@ func newHandler(secret string, work chan<- *finlight.WebhookEvent) http.Handler 
 			w.WriteHeader(http.StatusOK) // a retry of a delivery we already have
 			return
 		}
-		w.WriteHeader(http.StatusOK)
+		// Queue first, answer after: a 2xx ends the deliveries of this event.
 		select {
 		case work <- ev:
+			w.WriteHeader(http.StatusOK)
 		default:
-			log.Printf("work queue full, dropping %s", ev.EventID)
+			// Not taken: forget the eventId and answer 503, so that the retry
+			// (same eventId, 10 min later) is not dropped as a duplicate.
+			seen.Delete(ev.EventID)
+			log.Printf("work queue full, asking for a retry of %s", ev.EventID)
+			http.Error(w, "busy, retry later", http.StatusServiceUnavailable)
 		}
 	})
 }

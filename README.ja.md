@@ -188,9 +188,12 @@ for ev, err := range s.Events() {
   include はなく、content、sentiment、companies、events もありません。
 - `StreamOptions` のフック：`OnAdmitted(AdmittedInfo)`、最初以外の新しい接続ごとの
   `OnReconnect(ReconnectInfo)`、ストリームを終了させない問題の `OnError(finlight.Error)`、
-  `OnQuotaWait(QuotaWaitInfo)`。フック内の panic は回復されてログに記録され、ストリームは止まりません。
+  `OnQuotaWait(QuotaWaitInfo)`。フックは専用の goroutine で順番に 1 つずつ実行されるため、遅いフックが
+  ping や pong を遅らせることはありません。ループと共有する状態にはロックが必要です。フックから `s.Close()` を
+  呼べます。フック内の panic は回復されてログに記録され、ストリームは止まりません。
 - ストリームは 25 秒ごとに ping を送り、60 秒間 pong がなければ再接続し、115 分後に新しい接続を開きます。
-  再接続のたびに同じ subscribe を送り、重複を破棄します。
+  再接続のたびに同じ subscribe を送り、重複を破棄します。再接続までの待ち時間は、接続が記事か pong を
+  届けるまで伸びていきます（1 秒から 30 秒）。
 - 自動での取り戻しは行いません。`ReconnectInfo.LastSeenAt` は最後に見た `availableAt`（raw：`firstSeenAt`）
   です。欠落分は `Articles.SearchAll` に `From: *info.LastSeenAt, OrderBy: finlight.OrderByAvailableAt`
   （raw：`OrderByFirstSeenAt`）を指定して取得してください。
@@ -285,7 +288,8 @@ SDK のすべてのエラーは `Kind()` を持つ `finlight.Error` を実装し
 ちょうど待ってから 1 回だけ再試行します。既定で有効で、`MaxRetries` には数えず、
 `RetryOnBurst: finlight.BurstRetryOff` で無効にできます。呼び出しごとに独自の `X-Request-Id` を送り、
 再試行でも同じ値を使います。context をキャンセルすると待機中も含めて即座に停止し、エラーは `ctx.Err()` で、
-再試行されません。
+再試行されません。SDK の下に隠れた再試行はありません。net/http が GET を勝手に再送することはなく、
+リダイレクトにも従いません（3xx は `*APIError` として返ります）。
 
 ## 設定
 
@@ -332,7 +336,7 @@ client, err := finlight.NewClient(finlight.Config{
 
 独自の `HTTPClient` を使う場合、そのタイムアウト、プロキシ、transport が適用されます（`Timeout` は追加
 されません）。各試行がクォータを消費するため、再試行する transport は追加しないでください。SDK がそれを
-閉じることはありません。
+閉じることはありません。キーが別のホストに送られないよう、SDK はリダイレクトを無効にしたコピーを使います。
 
 ## ログ
 
@@ -372,7 +376,7 @@ client, err := finlight.NewClient(finlight.Config{APIKey: key, Logger: logger})
 | `Sentiment`、`Confidence` | `Sentiment.Value().Label`、`Sentiment.Value().Confidence` |
 | `client.Websocket.Stream(ctx, ...)` | `client.Stream(ctx, ...)` と `range s.Events()` |
 | raw WebSocket クライアント | `client.RawStream(ctx, ...)` |
-| Webhook の `IsUpdate` | `ev.Event == finlight.WebhookEventArticleUpdated` |
+| Webhook の `IsUpdate` | `ev.Event == finlight.WebhookEventNameArticleUpdated` |
 | Webhook の本文 | `ev.Data` と、重複排除用の `ev.EventID` |
 
 Webhook を v3 に切り替える 4 つの手順：

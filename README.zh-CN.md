@@ -186,9 +186,10 @@ for ev, err := range s.Events() {
   没有 content、sentiment、companies 或 events。
 - `StreamOptions` 中的钩子：`OnAdmitted(AdmittedInfo)`、除第一次外每次新连接后的
   `OnReconnect(ReconnectInfo)`、不会结束流的问题 `OnError(finlight.Error)`，以及
-  `OnQuotaWait(QuotaWaitInfo)`。钩子中的 panic 会被恢复并记录，绝不会停止流。
+  `OnQuotaWait(QuotaWaitInfo)`。钩子在自己的 goroutine 上按顺序逐个运行：慢的钩子不会延误 ping 和 pong。
+  与循环共享的状态需要加锁。钩子中可以调用 `s.Close()`。钩子中的 panic 会被恢复并记录，绝不会停止流。
 - 流每 25 秒发送一次 ping，60 秒内没有 pong 时重新连接，并在 115 分钟后建立新连接。每次重连后发送相同的
-  subscribe，并丢弃重复消息。
+  subscribe，并丢弃重复消息。重连前的等待会逐步增加（1 秒到 30 秒），直到某个连接送达文章或 pong。
 - 不会自动补数据。`ReconnectInfo.LastSeenAt` 是您看到的最新 `availableAt`（raw：`firstSeenAt`）。
   请用 `Articles.SearchAll` 并设置 `From: *info.LastSeenAt, OrderBy: finlight.OrderByAvailableAt`
   （raw：`OrderByFirstSeenAt`）补齐缺口。
@@ -279,7 +280,8 @@ SDK 的每个错误都实现带 `Kind()` 的 `finlight.Error`：`api`、`validat
 404 和每月 429 绝不重试：每月 429 会立即失败，`SearchAll` 内也是如此；只有流会等待配额（见上文）。
 突发 429 会精确等待 `Retry-After` 秒（无该头时为 10 秒）并再试一次；默认开启，不计入 `MaxRetries`，
 `RetryOnBurst: finlight.BurstRetryOff` 可将其关闭。每个调用发送自己的 `X-Request-Id`，重试时保持不变。
-取消 context 会立即停止调用（包括等待）；错误为 `ctx.Err()`，绝不重试。
+取消 context 会立即停止调用（包括等待）；错误为 `ctx.Err()`，绝不重试。SDK 之下没有隐藏的重试：net/http
+不会自行重发 GET，也不会跟随重定向（3xx 以 `*APIError` 返回）。
 
 ## 配置
 
@@ -325,7 +327,7 @@ client, err := finlight.NewClient(finlight.Config{
 | `HTTPClient` | 自带客户端 | 您的 `*http.Client`，用于 REST 和 WebSocket 握手 |
 
 使用自己的 `HTTPClient` 时，适用其超时、代理和 transport（不会再加 `Timeout`）；请不要添加带重试的
-transport，因为每次尝试都消耗配额。SDK 绝不会关闭它。
+transport，因为每次尝试都消耗配额。SDK 绝不会关闭它。SDK 使用它的一个副本并关闭重定向，以免密钥被发往其他主机。
 
 ## 日志
 
@@ -365,7 +367,7 @@ client, err := finlight.NewClient(finlight.Config{APIKey: key, Logger: logger})
 | `Sentiment`、`Confidence` | `Sentiment.Value().Label`、`Sentiment.Value().Confidence` |
 | `client.Websocket.Stream(ctx, ...)` | `client.Stream(ctx, ...)` 与 `range s.Events()` |
 | raw WebSocket 客户端 | `client.RawStream(ctx, ...)` |
-| Webhook `IsUpdate` | `ev.Event == finlight.WebhookEventArticleUpdated` |
+| Webhook `IsUpdate` | `ev.Event == finlight.WebhookEventNameArticleUpdated` |
 | Webhook 请求体 | `ev.Data`，以及用于去重的 `ev.EventID` |
 
 将 Webhook 切换到 v3 的四个步骤：

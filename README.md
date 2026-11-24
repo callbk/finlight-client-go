@@ -187,9 +187,12 @@ for ev, err := range s.Events() {
   include, no content, sentiment, companies or events.
 - Hooks in `StreamOptions`: `OnAdmitted(AdmittedInfo)`, `OnReconnect(ReconnectInfo)` after every new
   connection but the first, `OnError(finlight.Error)` for problems that do not end the stream, and
-  `OnQuotaWait(QuotaWaitInfo)`. A panic in a hook is recovered and logged and never stops the stream.
+  `OnQuotaWait(QuotaWaitInfo)`. Hooks run one at a time, in order, on their own goroutine: a slow hook
+  never delays pings or pongs. State shared with the loop needs a lock. A hook may call `s.Close()`. A panic in a hook is recovered and logged and
+  never stops the stream.
 - The stream pings every 25 s, reconnects when no pong came for 60 s, and opens a fresh connection
-  after 115 minutes. After each reconnect it sends the same subscribe and drops duplicates.
+  after 115 minutes. After each reconnect it sends the same subscribe and drops duplicates. The wait
+  before a reconnect grows (1 s up to 30 s) until a connection delivers an article or a pong.
 - It never backfills. `ReconnectInfo.LastSeenAt` is the latest `availableAt` (raw: `firstSeenAt`) you saw.
   Fill gaps with `Articles.SearchAll` with `From: *info.LastSeenAt, OrderBy: finlight.OrderByAvailableAt`
   (raw: `OrderByFirstSeenAt`).
@@ -287,7 +290,8 @@ also inside `SearchAll`; only streams wait for the quota (see above). A burst 42
 `Retry-After` seconds (10 without the header) and tries once more; this is on by default, does not count
 against `MaxRetries`, and `RetryOnBurst: finlight.BurstRetryOff` turns it off. Every call sends its own
 `X-Request-Id`, the same on each retry. Cancelling the context stops a call at once, waits included; the
-error is `ctx.Err()`, never retried.
+error is `ctx.Err()`, never retried. There are no hidden retries below the SDK: net/http does not resend a
+GET on its own, and redirects are not followed (a 3xx comes back as `*APIError`).
 
 ## Configuration
 
@@ -333,7 +337,8 @@ be turned off, use a negative number (`MaxRetries`, `CompanyCacheSize`) or the `
 | `HTTPClient` | own client | your `*http.Client`, used for REST and the WebSocket handshake |
 
 With your own `HTTPClient`, its timeouts, proxy and transport apply (`Timeout` is not added); do not add
-retrying transports, because every attempt costs quota. The SDK never closes it.
+retrying transports, because every attempt costs quota. The SDK never closes it. It uses a copy of it
+with redirects turned off, so that the key never goes to another host.
 
 ## Logging
 
@@ -374,7 +379,7 @@ The full guide is on [docs.finlight.me](https://docs.finlight.me/migration/v2-to
 | `Sentiment`, `Confidence` | `Sentiment.Value().Label`, `Sentiment.Value().Confidence` |
 | `client.Websocket.Stream(ctx, ...)` | `client.Stream(ctx, ...)` and `range s.Events()` |
 | raw WebSocket client | `client.RawStream(ctx, ...)` |
-| webhook `IsUpdate` | `ev.Event == finlight.WebhookEventArticleUpdated` |
+| webhook `IsUpdate` | `ev.Event == finlight.WebhookEventNameArticleUpdated` |
 | webhook body | `ev.Data`, plus `ev.EventID` for deduplication |
 
 Switching a webhook to v3, in four steps:
