@@ -241,6 +241,23 @@ func (c *fakeClock) pending() int {
 	return len(c.timers)
 }
 
+// waitTimer waits until a one-shot timer due in d is registered. The stream
+// reports a scheduled reconnect before it starts the timer, so a test that
+// advances the clock right after the report can otherwise miss the timer.
+func (c *fakeClock) waitTimer(t testing.TB, d time.Duration) {
+	t.Helper()
+	waitFor(t, "timer for "+d.String(), func() bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		for _, x := range c.timers {
+			if x.period == 0 && !x.stopped && x.when.Equal(c.now.Add(d)) {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 // Advance moves the clock forward by d, firing due timers one at a time and
 // calling settle after each so the stream can react (and register new timers).
 func (c *fakeClock) Advance(d time.Duration, settle func(fired *fakeTimer)) {

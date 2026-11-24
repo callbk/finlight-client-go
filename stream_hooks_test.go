@@ -169,6 +169,7 @@ func TestBackoffGrowsOverSearchFailed(t *testing.T) {
 		if d < low {
 			t.Errorf("failure %d: delay = %v, want at least %v", i+1, d, low)
 		}
+		clock.waitTimer(t, d)
 		clock.Advance(d, nil)
 		conn = ws.nextDial(t, "redial").conn
 	}

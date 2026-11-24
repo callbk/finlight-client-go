@@ -637,6 +637,7 @@ func TestRawReconnectPassesFirstSeenAt(t *testing.T) {
 	waitFor(t, "last seen", func() bool { return s.LastSeenAt() != nil })
 	d.conn.close()
 	waitFor(t, "scheduled", func() bool { return sched.Load() != 0 })
+	clock.waitTimer(t, time.Duration(sched.Load()-1))
 	clock.Advance(time.Duration(sched.Load()-1), nil)
 	select {
 	case r := <-recon:
