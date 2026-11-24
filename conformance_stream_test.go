@@ -81,7 +81,24 @@ var (
 	_ = session("S-26", "dial-server-error.json", sessionOptions{})
 	_ = session("S-27", "preempted-quota-exceeded-no-reconnect.json", sessionOptions{})
 	_ = session("S-28", "dial-quota-exceeded-no-reconnect.json", sessionOptions{})
+	// The SDK does not check sourceTypes locally, so the unknown value reaches
+	// the server and comes back as a terminal VALIDATION_FAILED.
+	_ = session("S-29", "validation-failed-source-type.json", sessionOptions{after: sourceTypeIssue})
 )
+
+// sourceTypeIssue: the field issue names sourceTypes and carries allowedValues.
+func sourceTypeIssue(t *testing.T, s *sessionState) {
+	s.p.with(func() {
+		var ae *APIError
+		if !errors.As(s.p.terminal, &ae) || len(ae.Errors) != 1 {
+			t.Fatalf("terminal = %v", s.p.terminal)
+		}
+		fi := ae.Errors[0]
+		if fi.Field != "sourceTypes" || strings.Join(fi.AllowedValues, ",") != strings.Join(toStrings(SourceTypeValues()), ",") {
+			t.Errorf("field issue = %+v", fi)
+		}
+	})
+}
 
 // searchFailedSurfaces: SEARCH_FAILED reaches onError only after 5 in a row.
 func searchFailedSurfaces(t *testing.T, s *sessionState) {

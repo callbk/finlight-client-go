@@ -178,10 +178,15 @@ type CompanyGetOptions struct {
 // StreamParams are the parameters of an enriched stream. The subscribe frame
 // carries only what is set, plus payloadVersion 3 and a clientNonce.
 type StreamParams struct {
-	Query               string
-	Sources             []string
-	ExcludeSources      []string
-	OptInSources        []string
+	Query          string
+	Sources        []string
+	ExcludeSources []string
+	OptInSources   []string
+	// SourceTypes and ExcludeSourceTypes filter by the type of the article's
+	// source, as in SearchParams. Unknown values are not checked locally: the
+	// server ends the stream with a terminal VALIDATION_FAILED.
+	SourceTypes         []SourceType
+	ExcludeSourceTypes  []SourceType
 	Language            string // one language; the server default is "en"
 	Tickers             []string
 	Countries           []string
@@ -197,8 +202,11 @@ type RawStreamParams struct {
 	Query          string
 	Sources        []string
 	ExcludeSources []string
-	Language       string
-	IncludeUpdates *bool
+	// SourceTypes and ExcludeSourceTypes work as in StreamParams.
+	SourceTypes        []SourceType
+	ExcludeSourceTypes []SourceType
+	Language           string
+	IncludeUpdates     *bool
 }
 
 func (p StreamParams) subscribe() (map[string]any, error) {
@@ -210,6 +218,8 @@ func (p StreamParams) subscribe() (map[string]any, error) {
 	setList(m, "sources", p.Sources)
 	setList(m, "excludeSources", p.ExcludeSources)
 	setList(m, "optInSources", p.OptInSources)
+	setList(m, "sourceTypes", toStrings(p.SourceTypes))
+	setList(m, "excludeSourceTypes", toStrings(p.ExcludeSourceTypes))
 	setStr(m, "language", p.Language)
 	setList(m, "tickers", p.Tickers)
 	setList(m, "countries", p.Countries)
@@ -227,6 +237,8 @@ func (p RawStreamParams) subscribe() (map[string]any, error) {
 	setStr(m, "query", p.Query)
 	setList(m, "sources", p.Sources)
 	setList(m, "excludeSources", p.ExcludeSources)
+	setList(m, "sourceTypes", toStrings(p.SourceTypes))
+	setList(m, "excludeSourceTypes", toStrings(p.ExcludeSourceTypes))
 	setStr(m, "language", p.Language)
 	setBool(m, "includeUpdates", p.IncludeUpdates)
 	return m, nil

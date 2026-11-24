@@ -188,6 +188,8 @@ for ev, err := range s.Events() {
 - `ev.Kind` 为 `created`、`updated` 或 `other`。
 - `client.RawStream(ctx, finlight.RawStreamParams{...}, opts)` 提供丰富处理之前的文章：没有 include，
   没有 content、sentiment、companies 或 events。
+- `SourceTypes` 和 `ExcludeSourceTypes` 与搜索中一样，按来源类型过滤两种流。未知的值会以致命的
+  `*APIError` 结束流（`APIKind` 为 `validation_failed`，并带有 `AllowedValues`）。
 - `StreamOptions` 中的钩子：`OnAdmitted(AdmittedInfo)`、除第一次外每次新连接后的
   `OnReconnect(ReconnectInfo)`、不会结束流的问题 `OnError(finlight.Error)`，以及
   `OnQuotaWait(QuotaWaitInfo)`。钩子在自己的 goroutine 上按顺序逐个运行：慢的钩子不会延误 ping 和 pong。

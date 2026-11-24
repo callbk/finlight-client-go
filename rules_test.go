@@ -30,10 +30,13 @@ func TestNoV2KeysInRequests(t *testing.T) {
 	keys := searchWireKeys(t)
 	sub, _ := StreamParams{
 		Query: "q", Sources: []string{"a"}, ExcludeSources: []string{"a"}, OptInSources: []string{"a"},
-		Language: "en", Tickers: []string{"X"}, Countries: []string{"US"}, Categories: []string{"c"},
+		SourceTypes: []SourceType{"blog"}, ExcludeSourceTypes: []SourceType{"blog"}, Language: "en", Tickers: []string{"X"}, Countries: []string{"US"}, Categories: []string{"c"},
 		ExcludeEmptyContent: &yes, IncludeUpdates: &yes, Include: []IncludeBlock{IncludeBlockContent},
 	}.subscribe()
-	rawSub, _ := RawStreamParams{Query: "q", Sources: []string{"a"}, ExcludeSources: []string{"a"}, Language: "en", IncludeUpdates: &yes}.subscribe()
+	rawSub, _ := RawStreamParams{
+		Query: "q", Sources: []string{"a"}, ExcludeSources: []string{"a"},
+		SourceTypes: []SourceType{"blog"}, ExcludeSourceTypes: []SourceType{"blog"}, Language: "en", IncludeUpdates: &yes,
+	}.subscribe()
 	all := append([]string{}, keys...)
 	for k := range sub {
 		all = append(all, k)

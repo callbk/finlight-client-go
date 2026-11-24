@@ -69,8 +69,8 @@ func conformance(id string, fn func(t *testing.T)) bool {
 // TestConformance checks them the same way.
 func TestConformance(t *testing.T) {
 	cases := kitCases(t)
-	if len(cases) != 105 {
-		t.Fatalf("conformance.md lists %d cases, want 105", len(cases))
+	if len(cases) != 106 {
+		t.Fatalf("conformance.md lists %d cases, want 106", len(cases))
 	}
 	seen := map[string]bool{}
 	for _, c := range cases {

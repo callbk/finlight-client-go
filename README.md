@@ -189,6 +189,8 @@ for ev, err := range s.Events() {
 - `ev.Kind` is `created`, `updated` or `other`.
 - `client.RawStream(ctx, finlight.RawStreamParams{...}, opts)` delivers articles before enrichment: no
   include, no content, sentiment, companies or events.
+- `SourceTypes` and `ExcludeSourceTypes` filter both streams by source type, as in a search. An unknown
+  value ends the stream with a terminal `*APIError` (`APIKind` `validation_failed`, `AllowedValues` set).
 - Hooks in `StreamOptions`: `OnAdmitted(AdmittedInfo)`, `OnReconnect(ReconnectInfo)` after every new
   connection but the first, `OnError(finlight.Error)` for problems that do not end the stream, and
   `OnQuotaWait(QuotaWaitInfo)`. Hooks run one at a time, in order, on their own goroutine: a slow hook

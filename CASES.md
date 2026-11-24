@@ -113,3 +113,4 @@ Run one case: `go test -run 'TestConformance/S-16' .` (or `./webhook` for W case
 | S-26 | Dial refused: server error | `conformance_stream_test.go` | `.` `TestConformance/S-26_Dial_refused:_server_error` |
 | S-27 | connection.preempted, reason quota_exceeded, with quotaReconnect turned off | `conformance_stream_test.go` | `.` `TestConformance/S-27_connection.preempted,_reason_quota_exceeded,_with_quotaReconnect_turned_off` |
 | S-28 | Dial refused: WebSocket quota exhausted, with quotaReconnect turned off | `conformance_stream_test.go` | `.` `TestConformance/S-28_Dial_refused:_WebSocket_quota_exhausted,_with_quotaReconnect_turned_off` |
+| S-29 | VALIDATION_FAILED for an unknown sourceTypes value | `conformance_stream_test.go` | `.` `TestConformance/S-29_VALIDATION_FAILED_for_an_unknown_sourceTypes_value` |

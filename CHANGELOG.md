@@ -33,7 +33,10 @@ Contract kit: 3.0.0-rc.4.
   `finlight.CompanyRoleAcquirer`, `finlight.ReconnectReasonRotation`) and `...Values()` functions.
 - Source types: `SearchParams.SourceTypes` and `SearchParams.ExcludeSourceTypes` (`[]finlight.SourceType`)
   filter a search by the type of the article's source; articles of unclassified sources never match
-  `SourceTypes` and are kept by `ExcludeSourceTypes`. Streams do not take them. `finlight.SourceType` has
+  `SourceTypes` and are kept by `ExcludeSourceTypes`. `StreamParams` and `RawStreamParams` take the same
+  two fields and send them as `sourceTypes` and `excludeSourceTypes`; the SDK does not check the values
+  locally, so an unknown one ends the stream with a terminal `*APIError` (`validation_failed`, field
+  `sourceTypes`, `AllowedValues` set). `finlight.SourceType` has
   the constants `SourceTypeNewswire`, `SourceTypePressRelease`, `SourceTypeFinancialMedia`,
   `SourceTypeGeneralMedia`, `SourceTypeAggregator`, `SourceTypeBlog` and `SourceTypeGovernment`.
   `Article.Source.Type` and `Source.Type` are nil when the source is not classified.

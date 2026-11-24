@@ -190,6 +190,8 @@ for ev, err := range s.Events() {
 - `ev.Kind` は `created`、`updated`、`other` のいずれかです。
 - `client.RawStream(ctx, finlight.RawStreamParams{...}, opts)` はエンリッチ前の記事を配信します。
   include はなく、content、sentiment、companies、events もありません。
+- `SourceTypes` と `ExcludeSourceTypes` は検索と同じく、両方のストリームをソースの種別で絞り込みます。未知の値は
+  致命的な `*APIError`（`APIKind` は `validation_failed`、`AllowedValues` あり）でストリームを終了させます。
 - `StreamOptions` のフック：`OnAdmitted(AdmittedInfo)`、最初以外の新しい接続ごとの
   `OnReconnect(ReconnectInfo)`、ストリームを終了させない問題の `OnError(finlight.Error)`、
   `OnQuotaWait(QuotaWaitInfo)`。フックは専用の goroutine で順番に 1 つずつ実行されるため、遅いフックが

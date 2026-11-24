@@ -189,6 +189,8 @@ for ev, err := range s.Events() {
 - `ev.Kind`는 `created`, `updated`, `other` 중 하나입니다.
 - `client.RawStream(ctx, finlight.RawStreamParams{...}, opts)`는 보강 전의 기사를 전달합니다. include가 없고
   content, sentiment, companies, events도 없습니다.
+- `SourceTypes`와 `ExcludeSourceTypes`는 검색과 마찬가지로 두 스트림을 소스 유형으로 거릅니다. 알 수 없는 값은
+  치명적인 `*APIError`(`APIKind`는 `validation_failed`, `AllowedValues` 포함)로 스트림을 끝냅니다.
 - `StreamOptions`의 훅: `OnAdmitted(AdmittedInfo)`, 첫 번째를 제외한 새 연결마다 `OnReconnect(ReconnectInfo)`,
   스트림을 끝내지 않는 문제에 대한 `OnError(finlight.Error)`, `OnQuotaWait(QuotaWaitInfo)`. 훅은 전용
   goroutine에서 순서대로 하나씩 실행되므로 느린 훅이 ping과 pong을 늦추지 않습니다. 루프와 공유하는 상태에는
