@@ -34,6 +34,9 @@ type probe struct {
 	client   *Client
 	stream   *Stream
 	finished chan struct{}
+
+	// lostPongs counts pings whose pong never came; only advance uses it.
+	lostPongs int
 }
 
 type scheduled struct {
@@ -123,6 +126,9 @@ func (p *probe) count(fn func() int) int {
 
 // advance moves the fake clock; after every ping it waits for the ping (and,
 // with auto-pong, for its pong) so that the watchdog sees each pong in time.
+// A pong that is still missing after the 2 s deadline (seen around a
+// rotation) is written off, so it does not cost the deadline on every later
+// tick.
 func (p *probe) advance(d time.Duration) {
 	p.clock.Advance(d, func(f *fakeTimer) {
 		deadline := time.Now().Add(2 * time.Second)
@@ -130,12 +136,17 @@ func (p *probe) advance(d time.Duration) {
 			time.Sleep(200 * time.Microsecond)
 		}
 		if f.period > 0 && len(f.ch) == 0 {
-			before := p.count(func() int { return p.pings })
-			_ = before
-			for time.Now().Before(deadline) {
+			for {
 				pings := p.count(func() int { return p.pings })
 				pongs := p.count(func() int { return p.pongs })
-				if pings > 0 && (!p.ws.autoPong.Load() || pongs >= pings) {
+				autoPong := p.ws.autoPong.Load()
+				if pings > 0 && (!autoPong || pongs >= pings-p.lostPongs) {
+					break
+				}
+				if !time.Now().Before(deadline) {
+					if autoPong && pings > 0 {
+						p.lostPongs = pings - pongs
+					}
 					break
 				}
 				time.Sleep(200 * time.Microsecond)
