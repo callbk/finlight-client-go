@@ -1,28 +1,40 @@
 package finlight
 
-import "errors"
+import "fmt"
 
-// Client is the entry point to the finlight API.
+// Client is the finlight API v3 client. It is safe for concurrent use and can
+// run several streams at the same time. It holds no connections of its own
+// besides streams, so there is nothing to close.
 type Client struct {
-	Articles     *ArticleService
-	Sources      *SourceService
-	Websocket    *WebSocketClient    // enhanced article stream, default options
-	RawWebsocket *RawWebSocketClient // raw article stream, default options
+	// Articles: search, searchAll, get and getByLink.
+	Articles *ArticlesService
+	// Companies: company master data (needs entityAccess).
+	Companies *CompaniesService
+	// Sources: the sources of the subscription.
+	Sources *SourcesService
+
+	cfg Config
+	t   *transport
 }
 
-// New validates cfg, applies defaults, and returns a ready-to-use client.
-// For WebSocket clients with custom options use NewWebSocketClient or
-// NewRawWebSocketClient.
-func New(cfg Config) (*Client, error) {
-	if cfg.APIKey == "" {
-		return nil, errors.New("finlight: Config.APIKey is required")
+// NewClient builds a client. Only Config.APIKey is required; an empty key
+// returns a *ValidationError.
+func NewClient(cfg Config) (*Client, error) {
+	full, err := cfg.withDefaults()
+	if err != nil {
+		return nil, err
 	}
-	cfg = cfg.withDefaults()
-	api := newAPIClient(cfg)
-	return &Client{
-		Articles:     &ArticleService{api: api},
-		Sources:      &SourceService{api: api},
-		Websocket:    NewWebSocketClient(cfg, WebSocketOptions{}),
-		RawWebsocket: NewRawWebSocketClient(cfg, WebSocketOptions{}),
-	}, nil
+	c := &Client{cfg: full, t: newTransport(full)}
+	c.Articles = &ArticlesService{c: c}
+	c.Companies = &CompaniesService{c: c, cache: newCompanyCache(full.CompanyCacheSize)}
+	c.Sources = &SourcesService{c: c}
+	return c, nil
 }
+
+// String never shows the API key.
+func (c *Client) String() string {
+	return fmt.Sprintf("finlight.Client{BaseURL:%q, WSSURL:%q}", c.cfg.BaseURL, c.cfg.WSSURL)
+}
+
+// GoString never shows the API key.
+func (c *Client) GoString() string { return c.String() }
