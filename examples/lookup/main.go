@@ -39,7 +39,8 @@ func run(ctx context.Context, w io.Writer, cfg finlight.Config, link string) err
 		return err
 	}
 
-	// By link: reaches every article. A miss is a NOT_FOUND error, not nil.
+	// By link: reaches articles your plan covers (custom-source grant, plan date
+	// window). A miss or a blocked article is a NOT_FOUND error, not nil.
 	a, err := client.Articles.GetByLink(ctx, link, &finlight.GetOptions{Include: []finlight.IncludeBlock{finlight.IncludeBlockContent}})
 	switch {
 	case isNotFound(err):
