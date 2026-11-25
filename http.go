@@ -3,108 +3,367 @@ package finlight
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
+	mrand "math/rand/v2"
+	"net"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 )
 
-// retryableStatus mirrors the sibling clients: retry on 429 and transient 5xx.
-var retryableStatus = map[int]bool{
-	http.StatusTooManyRequests:     true,
-	http.StatusInternalServerError: true,
-	http.StatusBadGateway:          true,
-	http.StatusServiceUnavailable:  true,
-	http.StatusGatewayTimeout:      true,
+// transport sends REST requests: one X-Request-Id per logical call, retries
+// for 5xx, network errors and attempt timeouts, one burst retry after
+// Retry-After, never a retry after the caller's cancellation.
+type transport struct {
+	cfg     Config // APIKey cleared
+	key     secret
+	http    *http.Client
+	ownHTTP bool
+	log     *slog.Logger
+	newID   func() string
 }
 
-const baseRetryDelay = 500 * time.Millisecond
-
-// apiClient performs authenticated REST requests with retry and backoff.
-type apiClient struct {
-	cfg  Config
-	http *http.Client
-	log  *slog.Logger
-}
-
-func newAPIClient(cfg Config) *apiClient {
-	return &apiClient{cfg: cfg, http: cfg.HTTPClient, log: cfg.Logger}
-}
-
-// do sends one API request, retrying retryable statuses with exponential
-// backoff (500ms · 2^(attempt−1)), and decodes the 2xx response into out.
-func (c *apiClient) do(ctx context.Context, method, path string, query url.Values, body, out any) error {
-	u := c.cfg.BaseURL + path
-	if len(query) > 0 {
-		u += "?" + query.Encode()
+func newTransport(cfg Config, key secret) *transport {
+	t := &transport{cfg: cfg, key: key, log: cfg.Logger, newID: newRequestID}
+	if cfg.HTTPClient == nil {
+		t.http = &http.Client{}
+		t.ownHTTP = true
+	} else {
+		// A shallow copy: the caller's client stays as it is, its transport
+		// and timeouts are shared.
+		hc := *cfg.HTTPClient
+		t.http = &hc
 	}
+	// The API never redirects. Following a 3xx would send X-API-KEY to the
+	// redirect target (net/http strips only Authorization and Cookie), so the
+	// 3xx comes back as an *APIError instead.
+	t.http.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return t
+}
 
-	var payload []byte
-	if body != nil {
-		var err error
-		if payload, err = json.Marshal(body); err != nil {
-			return fmt.Errorf("finlight: encode request: %w", err)
-		}
+// noReplayBody is the empty body of a GET. net/http sends no body for it (it
+// reads EOF before writing the request), but a request with a body and no
+// GetBody is not replayable: net/http does not silently send a metered GET a
+// second time when a reused keep-alive connection breaks after the request
+// was written (R-RETRY-1). The SDK's own retry rules decide instead.
+type noReplayBody struct{}
+
+func (noReplayBody) Read([]byte) (int, error) { return 0, io.EOF }
+func (noReplayBody) Close() error             { return nil }
+
+type apiRequest struct {
+	method    string
+	path      string     // starting with /v3
+	query     url.Values // nil when none
+	body      []byte     // nil for GET
+	header    http.Header
+	requestID string // "" generates one
+}
+
+type apiResponse struct {
+	status    int
+	header    http.Header
+	body      []byte
+	requestID string
+}
+
+func newRequestID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// do sends one logical request and returns the 2xx (or 304) response.
+func (t *transport) do(ctx context.Context, req apiRequest) (*apiResponse, error) {
+	if req.requestID == "" {
+		req.requestID = t.newID()
 	}
-
-	for attempt := 1; ; attempt++ {
-		respBody, apiErr, err := c.doOnce(ctx, method, u, payload)
+	if t.cfg.TotalTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeoutCause(ctx, t.cfg.TotalTimeout, errTotalTimeout)
+		defer cancel()
+	}
+	retries := 0
+	burstRetried := false
+	for {
+		resp, err := t.attempt(ctx, req)
 		if err != nil {
-			return err
-		}
-		if apiErr != nil {
-			if retryableStatus[apiErr.StatusCode] && attempt < c.cfg.RetryCount {
-				delay := baseRetryDelay << (attempt - 1)
-				c.log.Warn("finlight: retrying request", "status", apiErr.StatusCode, "attempt", attempt, "delay", delay)
-				select {
-				case <-time.After(delay):
-					continue
-				case <-ctx.Done():
-					return ctx.Err()
-				}
+			if ctx.Err() != nil && !errors.Is(context.Cause(ctx), errTotalTimeout) {
+				return nil, ctx.Err() // the caller's cancellation, unchanged
 			}
-			return apiErr
+			var te *TimeoutError
+			if errors.Is(context.Cause(ctx), errTotalTimeout) && !errors.As(err, &te) {
+				err = &TimeoutError{NetworkError: &NetworkError{Message: "total timeout exceeded", Err: err}}
+			}
+			if retries < t.cfg.MaxRetries && ctx.Err() == nil && isRetryableTransport(err) {
+				retries++
+				if werr := t.backoff(ctx, retries, req, "network error"); werr != nil {
+					return nil, werr
+				}
+				continue
+			}
+			return nil, err
 		}
-		if out == nil {
-			return nil
+		if resp.status >= 200 && resp.status < 300 || resp.status == http.StatusNotModified {
+			return resp, nil
 		}
-		if err := json.Unmarshal(respBody, out); err != nil {
-			return fmt.Errorf("finlight: decode response: %w", err)
+		apiErr := parseAPIError(resp.status, resp.header, resp.body, req.requestID)
+		switch {
+		case resp.status == http.StatusTooManyRequests:
+			if apiErr.LimitType == RateLimitTypeBurst && t.cfg.RetryOnBurst == BurstRetryOnce && !burstRetried {
+				burstRetried = true
+				wait := apiErr.RetryAfter
+				if wait <= 0 {
+					wait = t.cfg.BurstWait
+				}
+				t.log.Warn("finlight: burst rate limit, retrying once", "wait", wait, "requestId", req.requestID)
+				if werr := t.wait(ctx, wait); werr != nil {
+					return nil, werr
+				}
+				continue
+			}
+			return nil, apiErr
+		case resp.status >= 500 && retries < t.cfg.MaxRetries:
+			retries++
+			if werr := t.backoff(ctx, retries, req, fmt.Sprintf("status %d", resp.status)); werr != nil {
+				return nil, werr
+			}
+			continue
 		}
-		return nil
+		return nil, apiErr
 	}
 }
 
-func (c *apiClient) doOnce(ctx context.Context, method, url string, payload []byte) ([]byte, *APIError, error) {
-	var bodyReader io.Reader
-	if payload != nil {
-		bodyReader = bytes.NewReader(payload)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
-	if err != nil {
-		return nil, nil, fmt.Errorf("finlight: build request: %w", err)
-	}
-	req.Header.Set("X-API-KEY", c.cfg.APIKey)
-	req.Header.Set("User-Agent", clientVersion())
-	if payload != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
+var errTotalTimeout = errors.New("finlight: total timeout exceeded")
 
-	resp, err := c.http.Do(req)
+func (t *transport) wait(ctx context.Context, d time.Duration) error {
+	if err := sleep(ctx, t.cfg.Clock, d); err != nil {
+		if errors.Is(context.Cause(ctx), errTotalTimeout) {
+			return &TimeoutError{NetworkError: &NetworkError{Message: "total timeout exceeded while waiting to retry", Err: err}}
+		}
+		return err
+	}
+	return nil
+}
+
+func (t *transport) backoff(ctx context.Context, retry int, req apiRequest, why string) error {
+	d := backoffDelay(t.cfg.RetryBaseDelay, t.cfg.RetryMaxDelay, retry-1)
+	t.log.Warn("finlight: retrying request", "reason", why, "retry", retry, "delay", d, "requestId", req.requestID)
+	return t.wait(ctx, d)
+}
+
+// backoffDelay is base*2^n capped at max, with jitter in [50%, 100%].
+func backoffDelay(base, maxDelay time.Duration, n int) time.Duration {
+	d := float64(base) * math.Pow(2, float64(n))
+	if d > float64(maxDelay) {
+		d = float64(maxDelay)
+	}
+	return time.Duration(d * (0.5 + mrand.Float64()*0.5))
+}
+
+func isRetryableTransport(err error) bool {
+	var ne *NetworkError
+	return errors.As(err, &ne)
+}
+
+func (t *transport) attempt(ctx context.Context, req apiRequest) (*apiResponse, error) {
+	actx := ctx
+	if t.ownHTTP {
+		var cancel context.CancelFunc
+		actx, cancel = context.WithTimeout(ctx, t.cfg.Timeout)
+		defer cancel()
+	}
+	u := t.cfg.BaseURL + req.path
+	if len(req.query) > 0 {
+		u += "?" + req.query.Encode()
+	}
+	var body io.Reader
+	if req.body != nil {
+		body = bytes.NewReader(req.body)
+	}
+	hr, err := http.NewRequestWithContext(actx, req.method, u, body)
 	if err != nil {
-		return nil, nil, fmt.Errorf("finlight: request failed: %w", err)
+		return nil, &ValidationError{Message: "cannot build request: " + err.Error()}
+	}
+	if body == nil {
+		hr.Body, hr.GetBody = noReplayBody{}, nil
+	}
+	for k, vs := range req.header {
+		hr.Header[k] = vs
+	}
+	hr.Header.Set("X-API-KEY", t.key.reveal())
+	hr.Header.Set("User-Agent", userAgent)
+	hr.Header.Set("x-client-version", Version)
+	hr.Header.Set("X-Request-Id", req.requestID)
+	hr.Header.Set("Accept", "application/json")
+	if req.body != nil {
+		hr.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := t.http.Do(hr)
+	if err != nil {
+		return nil, t.transportError(ctx, actx, err)
 	}
 	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, t.cfg.MaxResponseBytes+1))
 	if err != nil {
-		return nil, nil, fmt.Errorf("finlight: read response: %w", err)
+		return nil, t.transportError(ctx, actx, err)
 	}
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, &APIError{StatusCode: resp.StatusCode, Status: resp.Status, Body: respBody}, nil
+	if int64(len(data)) > t.cfg.MaxResponseBytes {
+		return nil, &DecodeError{Message: fmt.Sprintf("response body exceeds MaxResponseBytes (%d)", t.cfg.MaxResponseBytes)}
 	}
-	return respBody, nil, nil
+	return &apiResponse{status: resp.StatusCode, header: resp.Header, body: data, requestID: req.requestID}, nil
+}
+
+// transportError wraps a transport failure; the URL error text is stripped of
+// the query so that no request data ends up in error messages.
+func (t *transport) transportError(ctx, actx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		err = ue.Err
+	}
+	var nerr net.Error
+	if actx.Err() != nil || errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &nerr) && nerr.Timeout()) {
+		return &TimeoutError{NetworkError: &NetworkError{Message: "request timed out", Err: err}}
+	}
+	return &NetworkError{Message: "request failed", Err: err}
+}
+
+// parseAPIError reads an error body: problem+json first, then the NestJS form
+// {statusCode, message}, then a non-JSON body as status plus text.
+func parseAPIError(status int, header http.Header, body []byte, sentRequestID string) *APIError {
+	e := &APIError{Status: status, Raw: string(body), RequestID: sentRequestID}
+	var o jsonObject
+	trimmed := bytes.TrimSpace(body)
+	isObject := len(trimmed) > 0 && trimmed[0] == '{' && json.Unmarshal(trimmed, &o) == nil
+	if isObject {
+		e.rawJSON = append(json.RawMessage(nil), trimmed...)
+	}
+	if !isObject {
+		e.APIKind = APIKindOther
+		e.Detail = strings.TrimSpace(string(body))
+		if len(e.Detail) > 500 {
+			e.Detail = e.Detail[:500]
+		}
+	} else if _, hasCode := o["code"]; hasCode || o["type"] != nil || o["detail"] != nil || o["title"] != nil {
+		code, _ := o.plainString("", "code")
+		e.Code = ProblemCode(code)
+		e.Type, _ = o.plainString("", "type")
+		e.Title, _ = o.plainString("", "title")
+		e.Detail, _ = o.plainString("", "detail")
+		if rid, _ := o.plainString("", "requestId"); rid != "" {
+			e.RequestID = rid
+		}
+		if e.Code != "" {
+			e.APIKind = apiKindForCode(e.Code)
+		} else {
+			e.APIKind = APIKindOther
+		}
+		e.Errors = parseFieldIssues(o["errors"])
+		if lt, _ := o.plainString("", "limitType"); lt != "" {
+			e.LimitType = RateLimitType(lt)
+		}
+	} else {
+		// NestJS fallback form: {statusCode, message, error}; message may be a
+		// string or a list of strings. The status decides the kind.
+		e.APIKind = apiKindForStatus(status)
+		if msg, ok := o["message"]; ok {
+			var s string
+			var list []string
+			switch {
+			case json.Unmarshal(msg, &s) == nil:
+				e.Detail = s
+			case json.Unmarshal(msg, &list) == nil:
+				e.Detail = strings.Join(list, "; ")
+				for _, m := range list {
+					e.Errors = append(e.Errors, FieldIssue{Issue: m})
+				}
+			}
+		}
+		e.Title, _ = o.plainString("", "error")
+		if rid, _ := o.plainString("", "requestId"); rid != "" {
+			e.RequestID = rid
+		}
+	}
+	if status == http.StatusTooManyRequests {
+		e.APIKind = APIKindRateLimited
+		if e.LimitType == "" {
+			e.LimitType = classifyRateLimit(e.Detail)
+		}
+		e.RetryAfter = parseRetryAfter(header.Get("Retry-After"))
+	}
+	return e
+}
+
+// classifyRateLimit is the fallback when the 429 body has no limitType.
+func classifyRateLimit(detail string) RateLimitType {
+	switch {
+	case strings.Contains(detail, "Exceeded token limit"):
+		return RateLimitTypeMonthly
+	case strings.Contains(detail, "Exceeded rate limit"):
+		return RateLimitTypeBurst
+	}
+	return RateLimitTypeUnknown
+}
+
+func parseRetryAfter(v string) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+		return time.Duration(n) * time.Second
+	}
+	if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+		return time.Duration(f * float64(time.Second))
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		if d := time.Until(t); d > 0 {
+			return d
+		}
+	}
+	return 0
+}
+
+func parseFieldIssues(raw json.RawMessage) []FieldIssue {
+	if raw == nil || jsonKind(raw) != "array" {
+		return nil
+	}
+	var elems []json.RawMessage
+	if json.Unmarshal(raw, &elems) != nil {
+		return nil
+	}
+	out := make([]FieldIssue, 0, len(elems))
+	for _, el := range elems {
+		o, err := parseObject(el, "")
+		if err != nil {
+			continue
+		}
+		fi := FieldIssue{}
+		fi.Field, _ = o.plainString("", "field")
+		fi.Issue, _ = o.plainString("", "issue")
+		if av, err := o.stringList("", "allowedValues"); err == nil && o["allowedValues"] != nil {
+			fi.AllowedValues = av
+		}
+		if c, ok := o["constraints"]; ok {
+			var m map[string]string
+			if json.Unmarshal(c, &m) == nil {
+				fi.Constraints = m
+			}
+		}
+		out = append(out, fi)
+	}
+	return out
 }

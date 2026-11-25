@@ -1,3 +1,5 @@
+version: "2"
+
 linters:
   enable:
     - errcheck
@@ -5,12 +7,32 @@ linters:
     - staticcheck
     - unused
     - ineffassign
-    - gofmt
     - misspell
     - revive
+  settings:
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: unexported-return
+        - name: errorf
+        - name: error-naming
+        - name: error-strings
+        - name: receiver-naming
+        - name: indent-error-flow
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - revive
+      # names_test.go spells out every signature on purpose.
+      - path: names_test\.go
+        text: QF1011
 
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
+formatters:
+  enable:
+    - gofmt

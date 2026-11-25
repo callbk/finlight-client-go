@@ -2,19 +2,36 @@ package finlight
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 )
 
-// SourceService lists the news sources available through the API.
-type SourceService struct {
-	api *apiClient
-}
+// SourcesService groups the source endpoint (Client.Sources).
+type SourcesService struct{ c *Client }
 
-// GetSources returns all sources with their availability flags.
-func (s *SourceService) GetSources(ctx context.Context) ([]Source, error) {
-	var sources []Source
-	if err := s.api.do(ctx, http.MethodGet, "/v2/sources", nil, nil, &sources); err != nil {
+// List returns the sources of the subscription, sorted by domain. HasContent
+// is absent on every source without full-article access. Each request costs
+// 1 credit, error answers included.
+func (s *SourcesService) List(ctx context.Context) (*SourceList, error) {
+	resp, err := s.c.t.do(ctx, apiRequest{method: http.MethodGet, path: "/v3/sources"})
+	if err != nil {
 		return nil, err
 	}
-	return sources, nil
+	o, err := parseObject(resp.body, "")
+	if err != nil {
+		return nil, err
+	}
+	elems, err := o.envelope("sources")
+	if err != nil {
+		return nil, err
+	}
+	items, skipped := decodeList(elems, "sources", func(raw json.RawMessage, path string) (Source, error) {
+		v, err := decodeSource(raw, path)
+		if err != nil {
+			return Source{}, err
+		}
+		return *v, nil
+	})
+	s.c.logSkipped("sources", skipped)
+	return &SourceList{Items: items, Skipped: skipped}, nil
 }

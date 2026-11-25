@@ -1,10 +1,11 @@
 name: Release
 
-# For Go modules the git tag IS the release — no publish step needed.
-# This workflow gates the tag on a green test run and creates a GitHub release.
+# For Go modules the git tag is the release; there is no publish step.
+# This workflow gates the tag on the version constant and a green test run,
+# creates a GitHub release with hand-written notes and warms the Go proxy.
 on:
   push:
-    tags: ['v*']
+    tags: ['v2.*']
 
 permissions:
   contents: write
@@ -17,15 +18,28 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24'
+      - name: Tag matches finlight.Version
+        run: |
+          version=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' version.go)
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match finlight.Version ${version}"; exit 1
+          fi
+      - name: Module path is /v2
+        run: grep -qx 'module github.com/callbk/finlight-client-go/v2' go.mod
+      - name: Contract kit matches its MANIFEST
+        run: go run ./internal/tools/synckit -check
       - name: Test
-        run: go test -race ./...
+        run: go test -race -count=1 ./...
+      - name: Release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME}"
+          awk -v v="## ${version}" '$0 ~ "^"v {p=1; next} /^## / && p {exit} p' CHANGELOG.md > notes.md
+          test -s notes.md
       - name: Create GitHub release
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # Go has no registry to upload to — proxy.golang.org pulls the module
-      # from GitHub on first request. This step makes that request immediately
-      # so the version is cached on the proxy and indexed on pkg.go.dev right
-      # away instead of waiting for the first user's `go get`.
+      # proxy.golang.org pulls the module from GitHub on the first request.
+      # Request it now so the version is cached and indexed on pkg.go.dev.
       - name: Trigger Go proxy indexing
-        run: curl -sf "https://proxy.golang.org/github.com/callbk/finlight-client-go/@v/${GITHUB_REF_NAME}.info"
+        run: curl -sf "https://proxy.golang.org/github.com/callbk/finlight-client-go/v2/@v/${GITHUB_REF_NAME}.info"
